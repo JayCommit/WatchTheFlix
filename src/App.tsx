@@ -61,8 +61,8 @@ export default function App() {
           )
         }
       />
-      <Route path="/movie/:id" element={<DetailPage kind="movie" />} />
-      <Route path="/tv/:id" element={<DetailPage kind="tv" />} />
+      <Route path="/movie/:id" element={<DetailPage kind="movie" user={user} />} />
+      <Route path="/tv/:id" element={<DetailPage kind="tv" user={user} />} />
       <Route path="/play" element={<PlayerPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

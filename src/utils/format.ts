@@ -16,9 +16,14 @@ export function formatBytes(size: number | null | undefined): string {
   return `${mb.toFixed(0)} MB`
 }
 
-export function sortMediaFiles<T extends { season?: number | null; episode?: number | null; filename: string }>(
-  files: T[],
-): T[] {
+export function sortMediaFiles<
+  T extends {
+    season?: number | null
+    episode?: number | null
+    filename: string
+    preferred?: boolean
+  },
+>(files: T[]): T[] {
   return [...files].sort((a, b) => {
     const sa = a.season ?? 0
     const sb = b.season ?? 0
@@ -26,6 +31,8 @@ export function sortMediaFiles<T extends { season?: number | null; episode?: num
     const ea = a.episode ?? 0
     const eb = b.episode ?? 0
     if (ea !== eb) return ea - eb
+    // Preferred version first within the same episode / movie group
+    if (Boolean(a.preferred) !== Boolean(b.preferred)) return a.preferred ? -1 : 1
     return a.filename.localeCompare(b.filename)
   })
 }

@@ -899,28 +899,41 @@ img {
 }
 
 .episode-item {
-  display: grid;
-  grid-template-columns: 4.5rem 1fr auto;
-  gap: 1rem;
-  align-items: center;
-  padding: 0.95rem 1.1rem;
+  display: flex;
+  align-items: stretch;
+  gap: 0.55rem;
+  padding: 0.35rem 0.45rem 0.35rem 0.35rem;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--line);
   color: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+  transition: background 160ms ease, border-color 160ms ease;
 }
 
-.episode-item:hover,
-.episode-item:focus-visible {
+.episode-item:hover {
   background: rgba(255, 45, 85, 0.08);
   border-color: rgba(255, 45, 85, 0.28);
-  outline: none;
 }
 
-.episode-item:focus-visible {
+.episode-item-main {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr auto;
+  gap: 1rem;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  padding: 0.6rem 0.65rem;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.episode-item-main:focus-visible {
+  outline: none;
   box-shadow: 0 0 0 2px rgba(255, 45, 85, 0.35);
 }
 
@@ -1224,6 +1237,14 @@ img {
   padding: 4rem var(--pad-x);
   text-align: center;
   color: var(--text-muted);
+}
+
+.empty-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: center;
+  margin-top: 0.35rem;
 }
 
 .empty-state-hero {
@@ -2054,6 +2075,48 @@ img {
   word-break: break-all;
 }
 
+.convert-path-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.55rem;
+  min-width: 0;
+}
+
+.convert-path-row .convert-path-line {
+  flex: 1;
+  min-width: 0;
+}
+
+.convert-title-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.convert-title-link:hover strong {
+  color: var(--accent-hot);
+  text-decoration: underline;
+}
+
+.version-pill.preferred {
+  border-color: rgba(94, 234, 212, 0.45);
+  background: rgba(94, 234, 212, 0.12);
+  color: var(--cool);
+}
+
+.episode-item-actions {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.login-hint {
+  margin: -0.25rem 0 0;
+  font-size: 0.82rem;
+}
+
 .convert-mode-hint {
   margin: 0;
   font-size: 0.86rem;
@@ -2375,7 +2438,7 @@ img {
     min-height: min(78vh, 640px);
   }
 
-  .episode-item {
+  .episode-item-main {
     grid-template-columns: 3.6rem 1fr;
   }
 

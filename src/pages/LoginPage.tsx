@@ -81,6 +81,9 @@ export function LoginPage({ onSuccess }: Props) {
             minLength={8}
             required
           />
+          {password.length > 0 && password.length < 8 ? (
+            <p className="muted login-hint">Password must be at least 8 characters.</p>
+          ) : null}
           <button
             className="btn btn-primary"
             type="submit"

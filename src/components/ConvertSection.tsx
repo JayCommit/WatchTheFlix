@@ -1,7 +1,29 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../api'
 import type { CodecProbeCoverage, CodecProbeStatus, ConvertJob, ConvertNeedsFile } from '../types'
 import { formatBytes } from '../utils/format'
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.left = '-9999px'
+      document.body.appendChild(ta)
+      ta.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(ta)
+      return ok
+    } catch {
+      return false
+    }
+  }
+}
 
 function SkeletonRows({ rows = 5 }: { rows?: number }) {
   return (
@@ -81,6 +103,8 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
   const [deleteOriginal, setDeleteOriginal] = useState(false)
   const [mode, setMode] = useState<'auto' | 'remux' | 'transcode'>('auto')
   const [enqueueing, setEnqueueing] = useState(false)
+  const prevJobStatus = useRef<Map<number, string>>(new Map())
+  const jobStatusReady = useRef(false)
 
   const jobsActive = stats.running > 0 || stats.queued > 0
   const pollMs = probing || jobsActive ? 900 : 4000
@@ -92,6 +116,31 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
         api.convertNeeds(),
         api.convertProbeStatus(),
       ])
+      // Toast when jobs finish / fail (skip the first snapshot so refresh isn't noisy)
+      if (jobStatusReady.current) {
+        for (const job of j.jobs) {
+          const prev = prevJobStatus.current.get(job.id)
+          if (!prev) continue
+          if (
+            (prev === 'running' || prev === 'queued' || prev === 'cancelling') &&
+            (job.status === 'done' || job.status === 'failed' || job.status === 'skipped')
+          ) {
+            const label = job.titleName || job.path.split('/').pop() || `#${job.id}`
+            if (job.status === 'done') {
+              notify(`Convert done · ${label}${job.mode ? ` (${job.mode})` : ''}`)
+            } else if (job.status === 'skipped') {
+              notify(`Skipped · ${label} — already compatible`)
+            } else {
+              notify(`Convert failed · ${label}${job.error ? `: ${job.error}` : ''}`)
+            }
+          }
+        }
+      }
+      const nextMap = new Map<number, string>()
+      for (const job of j.jobs) nextMap.set(job.id, job.status)
+      prevJobStatus.current = nextMap
+      jobStatusReady.current = true
+
       setJobs(j.jobs)
       setStats(j.stats)
       setLocalMediaEnabled(j.localMediaEnabled)
@@ -465,7 +514,21 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
                       {job.audioCodec ? ` / ${job.audioCodec}` : ''}
                       {job.container ? ` · ${job.container}` : ''}
                     </span>
-                    <span className="muted convert-path-line">{job.path}</span>
+                    <div className="convert-path-row">
+                      <span className="muted convert-path-line">{job.path}</span>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        type="button"
+                        title="Copy path"
+                        onClick={() => {
+                          void copyText(job.path).then((ok) =>
+                            notify(ok ? 'Path copied' : 'Could not copy path'),
+                          )
+                        }}
+                      >
+                        Copy path
+                      </button>
+                    </div>
                     {active ? (
                       <div className="convert-progress-block compact">
                         <div className="convert-progress-head">
@@ -604,11 +667,30 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
                           />
                         </td>
                         <td>
-                          <strong>{f.title}</strong>
+                          <Link
+                            className="convert-title-link"
+                            to={f.kind === 'tv' ? `/tv/${f.titleId}` : `/movie/${f.titleId}`}
+                          >
+                            <strong>{f.title}</strong>
+                          </Link>
                           <div className="muted">{f.kind}</div>
                         </td>
                         <td>
-                          <div>{f.filename}</div>
+                          <div className="convert-path-row">
+                            <span>{f.filename}</span>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              type="button"
+                              title="Copy path"
+                              onClick={() => {
+                                void copyText(f.path).then((ok) =>
+                                  notify(ok ? 'Path copied' : 'Could not copy path'),
+                                )
+                              }}
+                            >
+                              Copy
+                            </button>
+                          </div>
                           <div className="muted">{formatBytes(f.size)}</div>
                         </td>
                         <td>

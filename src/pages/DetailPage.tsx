@@ -3,11 +3,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { DetailSkeleton } from '../components/Skeleton'
 import { TopBar } from '../components/TopBar'
-import type { MediaFile, TitleDetail } from '../types'
+import type { AuthUser, MediaFile, TitleDetail } from '../types'
 import { episodeLabel, formatBytes, formatTime, isLikelyUnsupported, sortMediaFiles } from '../utils/format'
 
 type Props = {
   kind: 'movie' | 'tv'
+  user: AuthUser
 }
 
 type SeasonFilter = number | 'all' | 'unknown'
@@ -21,13 +22,16 @@ function hasResume(file: MediaFile | undefined): boolean {
   return !!file?.progress && file.progress.position > 30
 }
 
-export function DetailPage({ kind }: Props) {
+export function DetailPage({ kind, user }: Props) {
   const { id } = useParams()
   const navigate = useNavigate()
+  const isAdmin = user.role === 'admin'
   const [detail, setDetail] = useState<TitleDetail | null>(null)
   const [error, setError] = useState('')
   const [season, setSeason] = useState<SeasonFilter>('all')
   const [onWatchlist, setOnWatchlist] = useState(false)
+  const [flash, setFlash] = useState('')
+  const [preferring, setPreferring] = useState<string | null>(null)
   const [trailers, setTrailers] = useState<Array<{ name: string; url: string }>>([])
   const [cast, setCast] = useState<Array<{ name: string; character: string; profile: string | null }>>(
     [],
@@ -38,6 +42,29 @@ export function DetailPage({ kind }: Props) {
   const [healthStats, setHealthStats] = useState<{ present: number; expected: number } | null>(
     null,
   )
+
+  async function reloadDetail() {
+    const num = Number(id)
+    if (!Number.isFinite(num) || num <= 0) return
+    const d = kind === 'movie' ? await api.movie(num) : await api.tv(num)
+    setDetail(d)
+  }
+
+  async function setPreferred(file: MediaFile) {
+    if (!detail || !isAdmin) return
+    setPreferring(file.path)
+    try {
+      await api.adminPreferFile(detail.id, file.path)
+      await reloadDetail()
+      setFlash('Preferred version updated')
+      window.setTimeout(() => setFlash(''), 2500)
+    } catch (err) {
+      setFlash(err instanceof Error ? err.message : 'Could not set preferred version')
+      window.setTimeout(() => setFlash(''), 3500)
+    } finally {
+      setPreferring(null)
+    }
+  }
 
   useEffect(() => {
     const num = Number(id)
@@ -140,9 +167,11 @@ export function DetailPage({ kind }: Props) {
         <TopBar
           actions={
             <>
-              <Link className="topbar-link" to="/admin">
-                Manage
-              </Link>
+              {isAdmin ? (
+                <Link className="topbar-link" to="/admin">
+                  Manage
+                </Link>
+              ) : null}
               <Link className="btn btn-ghost" to="/">
                 Library
               </Link>
@@ -174,9 +203,12 @@ export function DetailPage({ kind }: Props) {
       <TopBar
         actions={
           <>
-            <Link className="topbar-link" to="/admin">
-              Manage
-            </Link>
+            {flash ? <span className="muted scan-status hide-sm">{flash}</span> : null}
+            {isAdmin ? (
+              <Link className="topbar-link" to="/admin">
+                Manage
+              </Link>
+            ) : null}
             <Link className="btn btn-ghost" to="/">
               Library
             </Link>
@@ -350,35 +382,53 @@ export function DetailPage({ kind }: Props) {
                     ? Math.min(100, (file.progress.position / file.progress.duration) * 100)
                     : 0
                 const unsupported = isLikelyUnsupported(file.filename)
+                const versionCount = detail.files.filter(
+                  (f) => f.season === file.season && f.episode === file.episode,
+                ).length
                 return (
-                  <button
-                    key={file.path}
-                    className="episode-item"
-                    type="button"
-                    role="listitem"
-                    onClick={() => navigate(playUrl(detail, file))}
-                  >
-                    <strong className="ep-code">{label}</strong>
-                    <div className="ep-body">
-                      <strong>
-                        {file.episodeName || file.filename}
-                        {file.label ? <span className="version-pill">{file.label}</span> : null}
-                      </strong>
-                      <span>
-                        {hasResume(file)
-                          ? `Resume at ${formatTime(file.progress!.position)}`
-                          : unsupported
-                            ? 'May need a compatible codec in-browser'
-                            : 'Ready to stream'}
-                      </span>
-                      {pct > 0 ? (
-                        <div className="ep-progress" aria-hidden>
-                          <i style={{ width: `${pct}%` }} />
-                        </div>
-                      ) : null}
-                    </div>
-                    <span className="ep-cta">{hasResume(file) ? 'Resume' : 'Play'}</span>
-                  </button>
+                  <div key={file.path} className="episode-item" role="listitem">
+                    <button
+                      className="episode-item-main"
+                      type="button"
+                      onClick={() => navigate(playUrl(detail, file))}
+                    >
+                      <strong className="ep-code">{label}</strong>
+                      <div className="ep-body">
+                        <strong>
+                          {file.episodeName || file.filename}
+                          {file.label ? <span className="version-pill">{file.label}</span> : null}
+                          {file.preferred ? (
+                            <span className="version-pill preferred">Preferred</span>
+                          ) : null}
+                        </strong>
+                        <span>
+                          {hasResume(file)
+                            ? `Resume at ${formatTime(file.progress!.position)}`
+                            : unsupported
+                              ? 'May need a compatible codec in-browser'
+                              : 'Ready to stream'}
+                        </span>
+                        {pct > 0 ? (
+                          <div className="ep-progress" aria-hidden>
+                            <i style={{ width: `${pct}%` }} />
+                          </div>
+                        ) : null}
+                      </div>
+                      <span className="ep-cta">{hasResume(file) ? 'Resume' : 'Play'}</span>
+                    </button>
+                    {isAdmin && versionCount > 1 && !file.preferred ? (
+                      <div className="episode-item-actions">
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          type="button"
+                          disabled={preferring === file.path}
+                          onClick={() => void setPreferred(file)}
+                        >
+                          Prefer
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                 )
               })}
             </div>
@@ -393,41 +443,56 @@ export function DetailPage({ kind }: Props) {
             {sortMediaFiles(detail.files).map((file) => {
               const unsupported = isLikelyUnsupported(file.filename)
               return (
-                <button
-                  key={file.path}
-                  className="episode-item"
-                  type="button"
-                  role="listitem"
-                  onClick={() => navigate(playUrl(detail, file))}
-                >
-                  <strong className="ep-code">File</strong>
-                  <div className="ep-body">
-                    <strong>
-                      {file.filename}
-                      {file.label ? <span className="version-pill">{file.label}</span> : null}
-                    </strong>
-                    <span>
-                      {hasResume(file)
-                        ? `Resume at ${formatTime(file.progress!.position)}`
-                        : unsupported
-                          ? `${formatBytes(file.size)} · may not play in browser`
-                          : formatBytes(file.size)}
-                    </span>
-                    {file.progress && file.progress.duration > 0 ? (
-                      <div className="ep-progress" aria-hidden>
-                        <i
-                          style={{
-                            width: `${Math.min(
-                              100,
-                              (file.progress.position / file.progress.duration) * 100,
-                            )}%`,
-                          }}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                  <span className="ep-cta">{hasResume(file) ? 'Resume' : 'Play'}</span>
-                </button>
+                <div key={file.path} className="episode-item" role="listitem">
+                  <button
+                    className="episode-item-main"
+                    type="button"
+                    onClick={() => navigate(playUrl(detail, file))}
+                  >
+                    <strong className="ep-code">File</strong>
+                    <div className="ep-body">
+                      <strong>
+                        {file.filename}
+                        {file.label ? <span className="version-pill">{file.label}</span> : null}
+                        {file.preferred ? (
+                          <span className="version-pill preferred">Preferred</span>
+                        ) : null}
+                      </strong>
+                      <span>
+                        {hasResume(file)
+                          ? `Resume at ${formatTime(file.progress!.position)}`
+                          : unsupported
+                            ? `${formatBytes(file.size)} · may not play in browser`
+                            : formatBytes(file.size)}
+                      </span>
+                      {file.progress && file.progress.duration > 0 ? (
+                        <div className="ep-progress" aria-hidden>
+                          <i
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                (file.progress.position / file.progress.duration) * 100,
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                    <span className="ep-cta">{hasResume(file) ? 'Resume' : 'Play'}</span>
+                  </button>
+                  {isAdmin && detail.files.length > 1 && !file.preferred ? (
+                    <div className="episode-item-actions">
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        type="button"
+                        disabled={preferring === file.path}
+                        onClick={() => void setPreferred(file)}
+                      >
+                        Prefer
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               )
             })}
           </div>

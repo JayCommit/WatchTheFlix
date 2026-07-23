@@ -35,6 +35,7 @@ export type MediaFile = {
   episode?: number | null
   episodeName?: string | null
   label?: string
+  preferred?: boolean
   progress: Progress | null
 }
 
@@ -94,6 +95,7 @@ export type AdminTitle = Title & {
     episode?: number | null
     episodeName?: string | null
     progress?: Progress | null
+    preferred?: boolean
     container?: string | null
     videoCodec?: string | null
     audioCodec?: string | null

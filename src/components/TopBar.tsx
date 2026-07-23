@@ -14,7 +14,7 @@ type Props = {
 export function TopBar({
   search = '',
   onSearchChange,
-  searchPlaceholder = 'Search titles…',
+  searchPlaceholder = 'Search titles… (/)',
   actions,
   showSearch = false,
   badge,
@@ -40,6 +40,7 @@ export function TopBar({
               />
             </svg>
             <input
+              id="wtf-topbar-search"
               type="search"
               value={search}
               onChange={(e) => onSearchChange(e.target.value)}

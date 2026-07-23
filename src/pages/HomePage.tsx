@@ -58,6 +58,22 @@ export function HomePage({ user, onLogout }: Props) {
     return () => window.removeEventListener('keydown', onKey)
   }, [menuOpen])
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return
+      const tag = (e.target as HTMLElement | null)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if ((e.target as HTMLElement | null)?.isContentEditable) return
+      const input = document.getElementById('wtf-topbar-search') as HTMLInputElement | null
+      if (!input) return
+      e.preventDefault()
+      input.focus()
+      input.select()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   const q = query.trim().toLowerCase()
 
   const featured = useMemo(() => {
@@ -221,9 +237,11 @@ export function HomePage({ user, onLogout }: Props) {
         <TopBar
           actions={
             <>
-              <Link className="topbar-link" to="/admin">
-                Manage
-              </Link>
+              {isAdmin ? (
+                <Link className="topbar-link" to="/admin">
+                  Manage
+                </Link>
+              ) : null}
               <button className="btn btn-ghost" type="button" onClick={() => void logout()}>
                 Log out
               </button>
@@ -266,28 +284,36 @@ export function HomePage({ user, onLogout }: Props) {
             {isAdmin ? (
               <>
                 <p>Scan local disk or WebDAV, match titles on TMDB, and fill the house.</p>
-                <button
-                  className="btn btn-primary"
-                  type="button"
-                  disabled={scanning}
-                  onClick={() => void onScan()}
-                >
-                  {scanning ? 'Scanning…' : 'Scan library'}
-                </button>
+                <div className="empty-cta-row">
+                  <button
+                    className="btn btn-primary"
+                    type="button"
+                    disabled={scanning}
+                    onClick={() => void onScan()}
+                  >
+                    {scanning ? 'Scanning…' : 'Scan library'}
+                  </button>
+                  <Link className="btn btn-ghost" to="/admin">
+                    Open Manage
+                  </Link>
+                </div>
                 {scanMsg ? (
                   <p
                     className={
-                      scanMsg.includes('failed') || scanMsg.includes('0 video')
-                        ? 'error-text'
-                        : 'muted'
+                      /fail|missing|TMDB|0 video/i.test(scanMsg) ? 'error-text' : 'muted'
                     }
                   >
                     {scanMsg}
                   </p>
-                ) : null}
+                ) : (
+                  <p className="muted">
+                    Tip: set <code>TMDB_API_KEY</code> and <code>LOCAL_MEDIA_ROOT</code> in{' '}
+                    <code>.env</code> before scanning.
+                  </p>
+                )}
               </>
             ) : (
-              <p className="muted">Ask an admin to scan the library.</p>
+              <p className="muted">Ask an admin to scan the library — then your titles will show up here.</p>
             )}
           </div>
         ) : q ? (
