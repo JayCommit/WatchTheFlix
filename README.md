@@ -110,6 +110,31 @@ On Ubuntu containers with media mounted locally:
 
 Sibling `.browser.mp4` copies are created when replace is turned off.
 
+## Ubuntu systemd service
+
+From the project root (Node 22+ required for the install user):
+
+```bash
+# 1) Configure env (or let the script copy .env.example → .env)
+cp .env.example .env
+nano .env
+
+# 2) Install deps, build, register + start the service
+sudo ./deploy/install-ubuntu.sh
+```
+
+The unit runs `npm start` with `WorkingDirectory` set to this folder and loads `.env` from there (`EnvironmentFile` + dotenv).
+
+```bash
+sudo systemctl status watchtheflix
+sudo journalctl -u watchtheflix -f
+sudo systemctl restart watchtheflix
+sudo ./deploy/install-ubuntu.sh --uninstall   # remove the service only
+sudo ./deploy/install-ubuntu.sh --no-build    # skip npm run build
+```
+
+See `deploy/nginx.example.conf` for a reverse-proxy snippet (Range / long timeouts).
+
 ## Docker
 
 ```bash
@@ -117,8 +142,6 @@ Sibling `.browser.mp4` copies are created when replace is turned off.
 export HOST_MEDIA_PATH=/path/to/media
 docker compose up -d --build
 ```
-
-See `deploy/nginx.example.conf` for a reverse-proxy snippet (Range / long timeouts).
 
 ## Usage
 

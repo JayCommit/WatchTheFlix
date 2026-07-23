@@ -1,0 +1,2 @@
+*.sh text eol=lf
+deploy/*.service.in text eol=lf

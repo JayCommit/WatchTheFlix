@@ -1,0 +1,33 @@
+[Unit]
+Description=WatchTheFlix private cinema
+Documentation=https://github.com/JayCommit/WatchTheFlix
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+Group=__SERVICE_GROUP__
+WorkingDirectory=__APP_DIR__
+
+# Load KEY=value pairs from the project .env (optional; app also loads .env via dotenv)
+EnvironmentFile=-__APP_DIR__/.env
+Environment=NODE_ENV=production
+Environment=PATH=__PATH__
+
+ExecStart=__NPM_BIN__ start
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillMode=mixed
+
+# Reasonable defaults for media probing / convert
+LimitNOFILE=65535
+Nice=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=watchtheflix
+
+[Install]
+WantedBy=multi-user.target

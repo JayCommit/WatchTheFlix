@@ -287,31 +287,35 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
           <h2>Queue options</h2>
         </div>
         <div className="admin-convert-opts">
-          <label>
+          <label className="admin-convert-field">
             Mode
             <select value={mode} onChange={(e) => setMode(e.target.value as typeof mode)}>
-              <option value="auto">Auto (remux if possible)</option>
+              <option value="auto">Auto — remux when possible</option>
               <option value="remux">Remux only</option>
               <option value="transcode">Force transcode</option>
             </select>
           </label>
-          <label className="admin-check">
-            <input
-              type="checkbox"
-              checked={replaceOriginal}
-              onChange={(e) => setReplaceOriginal(e.target.checked)}
-            />
-            Verified replace (update library to new MP4)
-          </label>
-          <label className="admin-check">
-            <input
-              type="checkbox"
-              checked={deleteOriginal}
-              onChange={(e) => setDeleteOriginal(e.target.checked)}
-              disabled={!replaceOriginal}
-            />
-            Delete original after success (otherwise keep in <code>.wtf-originals/</code>)
-          </label>
+          <div className="admin-convert-opts-row">
+            <label className="admin-check">
+              <input
+                type="checkbox"
+                checked={replaceOriginal}
+                onChange={(e) => setReplaceOriginal(e.target.checked)}
+              />
+              <span>Verified replace — update library to the new MP4</span>
+            </label>
+            <label className="admin-check">
+              <input
+                type="checkbox"
+                checked={deleteOriginal}
+                onChange={(e) => setDeleteOriginal(e.target.checked)}
+                disabled={!replaceOriginal}
+              />
+              <span>
+                Delete original after success — otherwise keep in <code>.wtf-originals/</code>
+              </span>
+            </label>
+          </div>
         </div>
         <p className="muted">
           Flow: convert to temp → ffprobe verify → swap into place → optional purge of quarantined
