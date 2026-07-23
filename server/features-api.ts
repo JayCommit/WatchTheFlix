@@ -98,7 +98,8 @@ export function registerFeatureRoutes(app: Hono<Vars>): void {
     const denied = requireAuth(c)
     if (denied) return denied
     const user = c.get('user')!
-    return c.json({ profiles: listProfilesForUser(user.id), activeId: profileIdFrom(c) })
+    const profiles = listProfilesForUser(user.id).map((p) => ({ id: p.id, name: p.name }))
+    return c.json({ profiles, activeId: profileIdFrom(c) })
   })
 
   app.post('/api/profiles', async (c) => {
@@ -107,8 +108,8 @@ export function registerFeatureRoutes(app: Hono<Vars>): void {
     const user = c.get('user')!
     const body = await c.req.json<{ name?: string }>().catch(() => null)
     try {
-      const profile = createProfile(body?.name || 'Viewer', user.id)
-      return c.json({ profile })
+      const created = createProfile(body?.name || 'Viewer', user.id)
+      return c.json({ profile: { id: created.id, name: created.name } })
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'Create failed' }, 400)
     }

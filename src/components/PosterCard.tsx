@@ -18,6 +18,12 @@ export function PosterCard({ title, subtitle, progress }: Props) {
         ) : (
           <div className="poster-fallback">{title.title}</div>
         )}
+        <div className="poster-hover" aria-hidden>
+          <span className="poster-play">▶</span>
+          {title.voteAverage ? (
+            <span className="poster-rating">{title.voteAverage.toFixed(1)}</span>
+          ) : null}
+        </div>
         {progress != null && progress > 0 ? (
           <div className="progress-bar" aria-hidden>
             <i style={{ width: `${Math.min(100, progress * 100)}%` }} />
@@ -26,7 +32,14 @@ export function PosterCard({ title, subtitle, progress }: Props) {
       </div>
       <div className="poster-meta">
         <strong>{title.title}</strong>
-        <span>{subtitle ?? (title.year ? String(title.year) : title.kind === 'tv' ? 'Series' : 'Film')}</span>
+        <span>
+          {subtitle ??
+            (title.year
+              ? String(title.year)
+              : title.kind === 'tv'
+                ? 'Series'
+                : 'Film')}
+        </span>
       </div>
     </Link>
   )

@@ -1523,6 +1523,10 @@ export function userOwnsProfile(userId: number, profileId: number): boolean {
 export function createProfile(name: string, userId: number): ProfileRow {
   const trimmed = name.trim().slice(0, 40)
   if (!trimmed) throw new Error('Name required')
+  const count = (
+    db.prepare(`SELECT COUNT(*) AS c FROM profiles WHERE user_id = ?`).get(userId) as { c: number }
+  ).c
+  if (count >= 5) throw new Error('Maximum of 5 profiles')
   const result = db
     .prepare(`INSERT INTO profiles (name, created_at, user_id) VALUES (?, ?, ?)`)
     .run(trimmed, new Date().toISOString(), userId)

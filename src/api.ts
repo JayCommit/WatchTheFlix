@@ -320,6 +320,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ name }),
     }),
+  deleteProfile: (id: number) =>
+    request<{ ok: boolean }>(`/api/profiles/${id}`, { method: 'DELETE' }),
   watchlist: () =>
     request<{ items: import('./types').Title[] }>('/api/watchlist'),
   addWatchlist: (titleId: number) =>

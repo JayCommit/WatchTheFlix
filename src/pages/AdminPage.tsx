@@ -500,6 +500,7 @@ export function AdminPage({ user, onLogout }: Props) {
     <div className="app-shell admin-shell page-enter">
       <TopBar
         badge="Admin"
+        hideNav
         actions={
           <>
             {flash ? <span className="muted scan-status hide-sm">{flash}</span> : null}

@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
+
+export type NavKey = 'home' | 'movies' | 'tv' | 'my-list'
 
 type Props = {
   search?: string
@@ -9,7 +11,18 @@ type Props = {
   showSearch?: boolean
   /** Small pill next to the brand (e.g. Admin). */
   badge?: string
+  /** Highlight the active primary nav item. */
+  navActive?: NavKey
+  /** Hide consumer nav (admin pages). */
+  hideNav?: boolean
 }
+
+const NAV: Array<{ key: NavKey; to: string; label: string; end?: boolean }> = [
+  { key: 'home', to: '/', label: 'Home', end: true },
+  { key: 'movies', to: '/movies', label: 'Movies' },
+  { key: 'tv', to: '/tv', label: 'TV Shows' },
+  { key: 'my-list', to: '/my-list', label: 'My List' },
+]
 
 export function TopBar({
   search = '',
@@ -18,6 +31,8 @@ export function TopBar({
   actions,
   showSearch = false,
   badge,
+  navActive,
+  hideNav = false,
 }: Props) {
   return (
     <header className="topbar">
@@ -29,6 +44,23 @@ export function TopBar({
           </Link>
           {badge ? <span className="topbar-badge">{badge}</span> : null}
         </div>
+
+        {!hideNav ? (
+          <nav className="topbar-nav" aria-label="Browse">
+            {NAV.map((item) => (
+              <NavLink
+                key={item.key}
+                to={item.to}
+                end={item.end}
+                className={({ isActive }) =>
+                  `topbar-nav-link${isActive || navActive === item.key ? ' is-active' : ''}`
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+        ) : null}
 
         {showSearch && onSearchChange ? (
           <label className="topbar-search">

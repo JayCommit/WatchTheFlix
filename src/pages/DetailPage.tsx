@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
+import { MobileNav } from '../components/MobileNav'
 import { DetailSkeleton } from '../components/Skeleton'
 import { TopBar } from '../components/TopBar'
 import type { AuthUser, MediaFile, TitleDetail } from '../types'
@@ -163,7 +164,7 @@ export function DetailPage({ kind, user }: Props) {
 
   if (error) {
     return (
-      <div className="app-shell page-enter">
+      <div className="app-shell page-enter has-mobile-nav">
         <TopBar
           actions={
             <>
@@ -173,7 +174,7 @@ export function DetailPage({ kind, user }: Props) {
                 </Link>
               ) : null}
               <Link className="btn btn-ghost" to="/">
-                Library
+                Home
               </Link>
             </>
           }
@@ -185,6 +186,7 @@ export function DetailPage({ kind, user }: Props) {
             Back home
           </Link>
         </div>
+        <MobileNav />
       </div>
     )
   }
@@ -199,7 +201,7 @@ export function DetailPage({ kind, user }: Props) {
   }
 
   return (
-    <div className="app-shell detail-page page-enter">
+    <div className="app-shell detail-page page-enter has-mobile-nav">
       <TopBar
         actions={
           <>
@@ -210,7 +212,7 @@ export function DetailPage({ kind, user }: Props) {
               </Link>
             ) : null}
             <Link className="btn btn-ghost" to="/">
-              Library
+              Home
             </Link>
           </>
         }
@@ -225,7 +227,7 @@ export function DetailPage({ kind, user }: Props) {
               : detail.poster
                 ? `url(${detail.poster})`
                 : undefined,
-            backgroundColor: '#1a1510',
+            backgroundColor: '#0c0e18',
           }}
         />
         <div className="detail-body">
@@ -237,24 +239,34 @@ export function DetailPage({ kind, user }: Props) {
             )}
           </div>
           <div className="detail-copy">
-            <p className="hero-brand">WatchTheFlix</p>
+            <p className="hero-kicker">
+              {[
+                kind === 'movie' ? 'Movie' : 'Series',
+                detail.year ? String(detail.year) : null,
+                detail.voteAverage ? `${detail.voteAverage.toFixed(1)} ★` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
             <h1>{detail.title}</h1>
             <div className="hero-meta">
-              {detail.year ? <span>{detail.year}</span> : null}
-              {detail.voteAverage ? <span>★ {detail.voteAverage.toFixed(1)}</span> : null}
-              <span className="hero-kind">{kind === 'movie' ? 'Movie' : 'Series'}</span>
               {detail.genres.slice(0, 5).map((g) => (
-                <span key={g}>{g}</span>
+                <span key={g} className="genre-pill">
+                  {g}
+                </span>
               ))}
             </div>
             {detail.overview ? <p className="detail-overview">{detail.overview}</p> : null}
             <div className="hero-actions">
               <button
-                className="btn btn-primary"
+                className="btn btn-primary btn-play"
                 type="button"
                 disabled={!primaryFile}
                 onClick={playPrimary}
               >
+                <span className="btn-icon" aria-hidden>
+                  ▶
+                </span>
                 {hasResume(primaryFile ?? undefined)
                   ? `Resume · ${formatTime(primaryFile!.progress!.position)}`
                   : kind === 'movie'
@@ -271,7 +283,7 @@ export function DetailPage({ kind, user }: Props) {
                 </button>
               ) : null}
               <button
-                className="btn btn-ghost"
+                className={`btn btn-ghost${onWatchlist ? ' is-listed' : ''}`}
                 type="button"
                 onClick={() => {
                   void (async () => {
@@ -285,7 +297,7 @@ export function DetailPage({ kind, user }: Props) {
                   })()
                 }}
               >
-                {onWatchlist ? 'On watchlist' : 'Add to watchlist'}
+                {onWatchlist ? '✓ My List' : '+ My List'}
               </button>
               {trailers[0] ? (
                 <a className="btn btn-ghost" href={trailers[0].url} target="_blank" rel="noreferrer">
@@ -294,7 +306,7 @@ export function DetailPage({ kind, user }: Props) {
               ) : null}
               {!primaryFile ? <span className="muted">No playable files yet</span> : null}
             </div>
-            <p className="kbd-hint muted">Press Enter or P to play</p>
+            <p className="kbd-hint muted hide-sm">Press Enter or P to play</p>
           </div>
         </div>
       </section>
@@ -498,6 +510,7 @@ export function DetailPage({ kind, user }: Props) {
           </div>
         </section>
       )}
+      <MobileNav />
     </div>
   )
 }

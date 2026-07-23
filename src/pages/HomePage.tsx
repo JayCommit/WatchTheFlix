@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
+import { AccountMenu } from '../components/AccountMenu'
 import { Hero } from '../components/Hero'
+import { MobileNav } from '../components/MobileNav'
 import { PosterCard } from '../components/PosterCard'
-import { ProfileSwitcher } from '../components/ProfileSwitcher'
 import { Row } from '../components/Row'
 import { HomeSkeleton } from '../components/Skeleton'
 import { TopBar } from '../components/TopBar'
@@ -21,6 +22,19 @@ function matchesQuery(title: Title, q: string): boolean {
   return hay.includes(q)
 }
 
+function topGenres(titles: Title[], limit = 4): string[] {
+  const counts = new Map<string, number>()
+  for (const t of titles) {
+    for (const g of t.genres) {
+      counts.set(g, (counts.get(g) ?? 0) + 1)
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([g]) => g)
+}
+
 export function HomePage({ user, onLogout }: Props) {
   const isAdmin = user.role === 'admin'
   const [data, setData] = useState<LibraryResponse | null>(null)
@@ -28,7 +42,6 @@ export function HomePage({ user, onLogout }: Props) {
   const [scanning, setScanning] = useState(false)
   const [scanMsg, setScanMsg] = useState('')
   const [query, setQuery] = useState('')
-  const [menuOpen, setMenuOpen] = useState(false)
   const [watchlist, setWatchlist] = useState<Title[]>([])
 
   async function load() {
@@ -50,15 +63,6 @@ export function HomePage({ user, onLogout }: Props) {
   }, [])
 
   useEffect(() => {
-    if (!menuOpen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [menuOpen])
-
-  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return
       const tag = (e.target as HTMLElement | null)?.tagName
@@ -78,12 +82,28 @@ export function HomePage({ user, onLogout }: Props) {
 
   const featured = useMemo(() => {
     if (!data || q) return null
+    // Prefer a continue-watching title's library entry, else recent
+    const cwId = data.continueWatching[0]?.titleId
+    if (cwId) {
+      const fromCw =
+        data.movies.find((t) => t.id === cwId) ??
+        data.shows.find((t) => t.id === cwId) ??
+        data.recent.find((t) => t.id === cwId)
+      if (fromCw) return fromCw
+    }
     return data.recent[0] ?? data.movies[0] ?? data.shows[0] ?? null
   }, [data, q])
 
   const featuredCta = useMemo(() => {
     if (!featured || !data) return { path: '/', label: 'Browse' }
     if (featured.kind === 'tv') {
+      const cw = data.continueWatching.find((c) => c.titleId === featured.id)
+      if (cw) {
+        return {
+          path: `/play?path=${encodeURIComponent(cw.path)}&titleId=${cw.titleId}&kind=tv`,
+          label: 'Resume',
+        }
+      }
       return { path: `/tv/${featured.id}`, label: 'Browse episodes' }
     }
     const cw = data.continueWatching.find((c) => c.titleId === featured.id)
@@ -108,6 +128,17 @@ export function HomePage({ user, onLogout }: Props) {
     }
   }, [data, q])
 
+  const genreRows = useMemo(() => {
+    if (!data || q) return [] as Array<{ genre: string; titles: Title[] }>
+    const pool = [...data.movies, ...data.shows]
+    return topGenres(pool, 4)
+      .map((genre) => ({
+        genre,
+        titles: pool.filter((t) => t.genres.includes(genre)).slice(0, 24),
+      }))
+      .filter((row) => row.titles.length >= 4)
+  }, [data, q])
+
   const searchResults = useMemo(() => {
     if (!q || !data) return []
     const seen = new Set<string>()
@@ -125,7 +156,6 @@ export function HomePage({ user, onLogout }: Props) {
     if (!isAdmin) return
     setScanning(true)
     setScanMsg('Starting library scan…')
-    setMenuOpen(false)
     try {
       const result = await api.runScan((status) => {
         const p = status.status
@@ -162,91 +192,11 @@ export function HomePage({ user, onLogout }: Props) {
     }
   }
 
-  async function logout() {
-    await api.logout()
-    onLogout()
-  }
-
-  const actions = (
-    <>
-      <ProfileSwitcher />
-      <span className="user-chip hide-sm" title={user.username}>
-        <span className="user-chip-avatar" aria-hidden>
-          {user.username.slice(0, 1).toUpperCase()}
-        </span>
-        {user.username}
-        {isAdmin ? ' · admin' : ''}
-      </span>
-      {scanMsg ? <span className="muted scan-status hide-sm">{scanMsg}</span> : null}
-      {isAdmin ? (
-        <Link className="topbar-link hide-sm" to="/admin">
-          Admin
-        </Link>
-      ) : null}
-      {isAdmin ? (
-        <button
-          className="btn btn-ghost hide-sm"
-          type="button"
-          disabled={scanning}
-          onClick={() => void onScan()}
-        >
-          {scanning ? 'Scanning…' : 'Scan'}
-        </button>
-      ) : null}
-      <button className="btn btn-ghost hide-sm" type="button" onClick={() => void logout()}>
-        Log out
-      </button>
-      <button
-        className="btn btn-ghost menu-toggle"
-        type="button"
-        aria-expanded={menuOpen}
-        aria-label="Menu"
-        onClick={() => setMenuOpen((v) => !v)}
-      >
-        Menu
-      </button>
-      {menuOpen ? (
-        <div className="mobile-menu">
-          <span className="user-chip">
-            <span className="user-chip-avatar" aria-hidden>
-              {user.username.slice(0, 1).toUpperCase()}
-            </span>
-            {user.username}
-          </span>
-          {isAdmin ? (
-            <Link className="btn btn-ghost" to="/admin" onClick={() => setMenuOpen(false)}>
-              Manage
-            </Link>
-          ) : null}
-          {isAdmin ? (
-            <button className="btn btn-ghost" type="button" disabled={scanning} onClick={() => void onScan()}>
-              {scanning ? 'Scanning…' : 'Scan library'}
-            </button>
-          ) : null}
-          <button className="btn btn-ghost" type="button" onClick={() => void logout()}>
-            Log out
-          </button>
-        </div>
-      ) : null}
-    </>
-  )
-
   if (error) {
     return (
-      <div className="app-shell page-enter">
+      <div className="app-shell page-enter has-mobile-nav">
         <TopBar
-          actions={
-            <>
-              {isAdmin ? (
-                <Link className="topbar-link" to="/admin">
-                  Manage
-                </Link>
-              ) : null}
-              <button className="btn btn-ghost" type="button" onClick={() => void logout()}>
-                Log out
-              </button>
-            </>
-          }
+          actions={<AccountMenu user={user} onLogout={onLogout} onScan={() => void onScan()} scanning={scanning} />}
         />
         <div className="empty-state">
           <h2>Couldn’t load library</h2>
@@ -255,6 +205,7 @@ export function HomePage({ user, onLogout }: Props) {
             Try again
           </button>
         </div>
+        <MobileNav />
       </div>
     )
   }
@@ -266,12 +217,23 @@ export function HomePage({ user, onLogout }: Props) {
   const empty = data.counts.files === 0
 
   return (
-    <div className="app-shell page-enter">
+    <div className="app-shell page-enter has-mobile-nav">
       <TopBar
         showSearch={!empty}
         search={query}
         onSearchChange={setQuery}
-        actions={actions}
+        navActive="home"
+        actions={
+          <>
+            {scanMsg ? <span className="muted scan-status hide-sm">{scanMsg}</span> : null}
+            <AccountMenu
+              user={user}
+              onLogout={onLogout}
+              onScan={() => void onScan()}
+              scanning={scanning}
+            />
+          </>
+        }
       />
 
       <main className="page">
@@ -344,14 +306,6 @@ export function HomePage({ user, onLogout }: Props) {
               <Hero title={featured} ctaPath={featuredCta.path} ctaLabel={featuredCta.label} />
             ) : null}
 
-            {watchlist.length > 0 ? (
-              <Row title="Watchlist">
-                {watchlist.map((t) => (
-                  <PosterCard key={`w-${t.kind}-${t.id}`} title={t} />
-                ))}
-              </Row>
-            ) : null}
-
             {data.continueWatching.length > 0 ? (
               <Row title="Continue watching">
                 {data.continueWatching.map((item) => (
@@ -366,6 +320,9 @@ export function HomePage({ user, onLogout }: Props) {
                       ) : (
                         <div className="poster-fallback">{item.title}</div>
                       )}
+                      <div className="poster-hover" aria-hidden>
+                        <span className="poster-play">▶</span>
+                      </div>
                       <div className="progress-bar" aria-hidden>
                         <i
                           style={{
@@ -391,6 +348,21 @@ export function HomePage({ user, onLogout }: Props) {
               </Row>
             ) : null}
 
+            {watchlist.length > 0 ? (
+              <Row
+                title="My List"
+                action={
+                  <Link className="row-see-all" to="/my-list">
+                    See all
+                  </Link>
+                }
+              >
+                {watchlist.map((t) => (
+                  <PosterCard key={`w-${t.kind}-${t.id}`} title={t} />
+                ))}
+              </Row>
+            ) : null}
+
             {filtered.recent.length > 0 ? (
               <Row title="Recently added">
                 {filtered.recent.map((t) => (
@@ -400,23 +372,46 @@ export function HomePage({ user, onLogout }: Props) {
             ) : null}
 
             {filtered.movies.length > 0 ? (
-              <Row title="Movies">
-                {filtered.movies.map((t) => (
+              <Row
+                title="Movies"
+                action={
+                  <Link className="row-see-all" to="/movies">
+                    See all
+                  </Link>
+                }
+              >
+                {filtered.movies.slice(0, 24).map((t) => (
                   <PosterCard key={`m-${t.id}`} title={t} />
                 ))}
               </Row>
             ) : null}
 
             {filtered.shows.length > 0 ? (
-              <Row title="TV shows">
-                {filtered.shows.map((t) => (
+              <Row
+                title="TV shows"
+                action={
+                  <Link className="row-see-all" to="/tv">
+                    See all
+                  </Link>
+                }
+              >
+                {filtered.shows.slice(0, 24).map((t) => (
                   <PosterCard key={`t-${t.id}`} title={t} />
                 ))}
               </Row>
             ) : null}
+
+            {genreRows.map((row) => (
+              <Row key={row.genre} title={row.genre}>
+                {row.titles.map((t) => (
+                  <PosterCard key={`g-${row.genre}-${t.kind}-${t.id}`} title={t} />
+                ))}
+              </Row>
+            ))}
           </>
         )}
       </main>
+      <MobileNav />
     </div>
   )
 }
