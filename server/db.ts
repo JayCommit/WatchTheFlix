@@ -1377,6 +1377,101 @@ export function listFilesNeedingConvert(limit = 200): Array<
     .all(limit) as Array<MediaFileRow & { title: string; kind: string; poster_path: string | null }>
 }
 
+/** Paths to ffprobe for codec detection (unprobed / failed, or entire library when force). */
+export function listPathsForCodecProbe(opts?: { force?: boolean }): string[] {
+  if (opts?.force) {
+    return (
+      db
+        .prepare(
+          `
+          SELECT f.path
+          FROM media_files f
+          JOIN titles t ON t.id = f.title_id
+          WHERE t.hidden = 0
+          ORDER BY f.path ASC
+        `,
+        )
+        .all() as Array<{ path: string }>
+    ).map((r) => r.path)
+  }
+
+  return (
+    db
+      .prepare(
+        `
+        SELECT f.path
+        FROM media_files f
+        JOIN titles t ON t.id = f.title_id
+        WHERE t.hidden = 0
+          AND (
+            f.probed_at IS NULL
+            OR f.probe_error IS NOT NULL
+            OR f.video_codec IS NULL
+            OR f.playback_mode IS NULL
+            OR f.can_direct IS NULL
+          )
+        ORDER BY f.path ASC
+      `,
+      )
+      .all() as Array<{ path: string }>
+  ).map((r) => r.path)
+}
+
+export function countProbeCoverage(): {
+  total: number
+  probed: number
+  unprobed: number
+  needsConvert: number
+  direct: number
+} {
+  const total = (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM media_files f JOIN titles t ON t.id = f.title_id WHERE t.hidden = 0`,
+      )
+      .get() as { c: number }
+  ).c
+  const probed = (
+    db
+      .prepare(
+        `
+        SELECT COUNT(*) AS c FROM media_files f
+        JOIN titles t ON t.id = f.title_id
+        WHERE t.hidden = 0
+          AND f.probed_at IS NOT NULL
+          AND f.video_codec IS NOT NULL
+          AND f.probe_error IS NULL
+      `,
+      )
+      .get() as { c: number }
+  ).c
+  const needsConvert = (
+    db
+      .prepare(
+        `
+        SELECT COUNT(*) AS c FROM media_files f
+        JOIN titles t ON t.id = f.title_id
+        WHERE t.hidden = 0
+          AND f.can_direct = 0
+          AND f.playback_mode IN ('remux', 'transcode')
+      `,
+      )
+      .get() as { c: number }
+  ).c
+  const direct = (
+    db
+      .prepare(
+        `
+        SELECT COUNT(*) AS c FROM media_files f
+        JOIN titles t ON t.id = f.title_id
+        WHERE t.hidden = 0 AND f.can_direct = 1
+      `,
+      )
+      .get() as { c: number }
+  ).c
+  return { total, probed, unprobed: Math.max(0, total - probed), needsConvert, direct }
+}
+
 export function convertJobStats(): {
   queued: number
   running: number

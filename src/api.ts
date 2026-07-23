@@ -4,6 +4,8 @@ import type {
   AdminOverview,
   AdminTitle,
   AuthUser,
+  CodecProbeCoverage,
+  CodecProbeStatus,
   ConvertJob,
   ConvertNeedsFile,
   LibraryResponse,
@@ -434,6 +436,29 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body ?? {}),
     }),
+  convertProbeLibrary: (body?: { force?: boolean }) =>
+    request<{
+      ok: boolean
+      started: boolean
+      status: CodecProbeStatus
+      coverage: CodecProbeCoverage
+      localMediaEnabled: boolean
+    }>('/api/admin/convert/probe-library', {
+      method: 'POST',
+      body: JSON.stringify(body ?? {}),
+    }),
+  convertProbeStatus: () =>
+    request<{
+      running: boolean
+      status: CodecProbeStatus
+      coverage: CodecProbeCoverage
+      localMediaEnabled: boolean
+    }>('/api/admin/convert/probe-status'),
+  convertProbeCancel: () =>
+    request<{ ok: boolean; running: boolean; status: CodecProbeStatus }>(
+      '/api/admin/convert/probe-cancel',
+      { method: 'POST' },
+    ),
   convertEnqueue: (body: {
     path?: string
     paths?: string[]

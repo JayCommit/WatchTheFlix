@@ -26,6 +26,7 @@ import {
   convertJobStats,
   countFilesForTitle,
   countLibrary,
+  countProbeCoverage,
   getConvertJob,
   getFilesForTitle,
   getLibraryStats,
@@ -87,6 +88,12 @@ import {
   streamLocalFile,
   getStreamInfo,
 } from './playback.ts'
+import {
+  getCodecProbeProgress,
+  isCodecProbeRunning,
+  requestCancelCodecProbe,
+  startCodecProbe,
+} from './codec-probe.ts'
 import { contentTypeFor, probeWebdav, streamFile } from './webdav.ts'
 import { registerFeatureRoutes } from './features-api.ts'
 import { startScanScheduler } from './scan-scheduler.ts'
@@ -1416,6 +1423,49 @@ app.post('/api/admin/convert/probe', async (c) => {
     }
   }
   return c.json({ probed: results.length, results, localMediaEnabled: localMediaEnabled() })
+})
+
+/** Start background ffprobe of unprobed (or all) library files for remux/transcode detection. */
+app.post('/api/admin/convert/probe-library', async (c) => {
+  const denied = requireAdmin(c)
+  if (denied) return denied
+  if (isCodecProbeRunning()) {
+    return c.json(
+      { error: 'Codec probe already running', running: true, status: getCodecProbeProgress() },
+      409,
+    )
+  }
+  const body = (await c.req.json<{ force?: boolean }>().catch(() => null)) ?? {}
+  try {
+    const status = startCodecProbe({ force: Boolean(body.force) })
+    return c.json({
+      ok: true,
+      started: true,
+      status,
+      coverage: countProbeCoverage(),
+      localMediaEnabled: localMediaEnabled(),
+    })
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Failed to start probe' }, 400)
+  }
+})
+
+app.get('/api/admin/convert/probe-status', (c) => {
+  const denied = requireAdmin(c)
+  if (denied) return denied
+  return c.json({
+    running: isCodecProbeRunning(),
+    status: getCodecProbeProgress(),
+    coverage: countProbeCoverage(),
+    localMediaEnabled: localMediaEnabled(),
+  })
+})
+
+app.post('/api/admin/convert/probe-cancel', (c) => {
+  const denied = requireAdmin(c)
+  if (denied) return denied
+  requestCancelCodecProbe()
+  return c.json({ ok: true, running: isCodecProbeRunning(), status: getCodecProbeProgress() })
 })
 
 app.post('/api/admin/convert/enqueue', async (c) => {

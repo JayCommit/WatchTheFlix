@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api'
-import type { ConvertJob, ConvertNeedsFile } from '../types'
+import type { CodecProbeCoverage, CodecProbeStatus, ConvertJob, ConvertNeedsFile } from '../types'
 import { formatBytes } from '../utils/format'
 
 function SkeletonRows({ rows = 5 }: { rows?: number }) {
@@ -34,6 +34,8 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
   const [deleteDefault, setDeleteDefault] = useState(false)
   const [loading, setLoading] = useState(true)
   const [probing, setProbing] = useState(false)
+  const [probeStatus, setProbeStatus] = useState<CodecProbeStatus | null>(null)
+  const [coverage, setCoverage] = useState<CodecProbeCoverage | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [replaceOriginal, setReplaceOriginal] = useState(true)
   const [deleteOriginal, setDeleteOriginal] = useState(false)
@@ -41,12 +43,19 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [j, n] = await Promise.all([api.convertJobs(), api.convertNeeds()])
+      const [j, n, p] = await Promise.all([
+        api.convertJobs(),
+        api.convertNeeds(),
+        api.convertProbeStatus(),
+      ])
       setJobs(j.jobs)
       setStats(j.stats)
       setLocalMediaEnabled(j.localMediaEnabled)
       setDeleteDefault(j.deleteOriginalDefault)
       setNeeds(n.files)
+      setProbeStatus(p.status)
+      setCoverage(p.coverage)
+      setProbing(p.running || p.status.phase === 'running')
       setLoading(false)
     } catch (err) {
       notify(err instanceof Error ? err.message : 'Failed to load convert queue')
@@ -56,29 +65,40 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
 
   useEffect(() => {
     void refresh()
-    const id = window.setInterval(() => void refresh(), 4000)
+    const id = window.setInterval(() => void refresh(), probing ? 1200 : 4000)
     return () => window.clearInterval(id)
-  }, [refresh])
+  }, [refresh, probing])
 
   useEffect(() => {
     setDeleteOriginal(deleteDefault)
   }, [deleteDefault])
 
-  async function probeBatch() {
-    setProbing(true)
+  async function startLibraryProbe(force: boolean) {
     try {
-      const res = await api.convertProbe({ limit: 40 })
-      const failed = res.results?.filter((r) => !r.ok).length ?? 0
+      const res = await api.convertProbeLibrary({ force })
+      setProbeStatus(res.status)
+      setCoverage(res.coverage)
+      setProbing(res.status.phase === 'running')
       notify(
-        failed
-          ? `Probed ${res.probed} files · ${failed} failed / unknown codecs`
-          : `Probed ${res.probed} files`,
+        force
+          ? `Re-scanning codecs for ${res.status.total} file(s)…`
+          : res.status.total
+            ? `Detecting codecs for ${res.status.total} unprobed file(s)…`
+            : 'All files already have codec data',
       )
       await refresh()
     } catch (err) {
-      notify(err instanceof Error ? err.message : 'Probe failed')
-    } finally {
-      setProbing(false)
+      notify(err instanceof Error ? err.message : 'Could not start codec scan')
+    }
+  }
+
+  async function cancelLibraryProbe() {
+    try {
+      await api.convertProbeCancel()
+      notify('Codec scan cancel requested')
+      await refresh()
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Cancel failed')
     }
   }
 
@@ -148,6 +168,100 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
           Local media ready — convert jobs will run with FFmpeg on this host.
         </div>
       )}
+
+      <section className="admin-card">
+        <div className="section-head">
+          <h2>Detect file types</h2>
+          <div className="admin-actions">
+            {probing ? (
+              <button className="btn btn-ghost" type="button" onClick={() => void cancelLibraryProbe()}>
+                Cancel
+              </button>
+            ) : null}
+            <button
+              className="btn btn-ghost"
+              type="button"
+              disabled={probing}
+              onClick={() => void startLibraryProbe(true)}
+              title="Re-probe every file, even ones already scanned"
+            >
+              Rescan all
+            </button>
+            <button
+              className="btn btn-primary"
+              type="button"
+              disabled={probing}
+              onClick={() => void startLibraryProbe(false)}
+            >
+              {probing ? 'Scanning codecs…' : 'Scan codecs'}
+            </button>
+          </div>
+        </div>
+        <p className="muted">
+          Runs ffprobe on each library file to read container / video / audio codecs, then marks
+          whether it can <strong>direct play</strong>, needs a <strong>remux</strong>, or a full{' '}
+          <strong>transcode</strong>. Unprobed files are scanned first; use Rescan all to refresh
+          everything.
+        </p>
+        {coverage ? (
+          <div className="admin-stat-grid" style={{ marginTop: '1rem' }}>
+            <div className="admin-stat-card">
+              <span className="admin-stat-label">Library files</span>
+              <strong>{coverage.total}</strong>
+            </div>
+            <div className="admin-stat-card">
+              <span className="admin-stat-label">Probed</span>
+              <strong>{coverage.probed}</strong>
+            </div>
+            <div className="admin-stat-card">
+              <span className="admin-stat-label">Unprobed</span>
+              <strong>{coverage.unprobed}</strong>
+            </div>
+            <div className="admin-stat-card">
+              <span className="admin-stat-label">Direct play</span>
+              <strong>{coverage.direct}</strong>
+            </div>
+            <div className={`admin-stat-card${coverage.needsConvert > 0 ? ' warn' : ''}`}>
+              <span className="admin-stat-label">Needs convert</span>
+              <strong>{coverage.needsConvert}</strong>
+            </div>
+          </div>
+        ) : null}
+        {probeStatus && (probeStatus.phase === 'running' || probeStatus.processed > 0) ? (
+          <div style={{ marginTop: '1rem' }}>
+            <div className="admin-mini-bar" style={{ height: 6, marginBottom: '0.55rem' }}>
+              <i
+                style={{
+                  width: `${
+                    probeStatus.total > 0
+                      ? Math.min(100, Math.round((probeStatus.processed / probeStatus.total) * 100))
+                      : probeStatus.phase === 'done'
+                        ? 100
+                        : 0
+                  }%`,
+                }}
+              />
+            </div>
+            <p className={probeStatus.phase === 'error' ? 'error-text' : 'muted'}>
+              {probeStatus.message}
+              {probeStatus.phase === 'running' && probeStatus.total
+                ? ` · ${probeStatus.processed}/${probeStatus.total}`
+                : ''}
+            </p>
+            {probeStatus.phase !== 'idle' ? (
+              <p className="muted" style={{ fontSize: '0.85rem' }}>
+                Direct {probeStatus.direct} · Remux {probeStatus.remux} · Transcode{' '}
+                {probeStatus.transcode} · Failed {probeStatus.failed}
+              </p>
+            ) : null}
+            {probeStatus.currentPath ? (
+              <p className="muted" style={{ fontSize: '0.78rem', wordBreak: 'break-all' }}>
+                {probeStatus.currentPath}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
 
       <div className="admin-stat-grid">
         <div className="admin-stat-card">
@@ -260,9 +374,6 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
         <div className="section-head">
           <h2>Needs conversion</h2>
           <div className="admin-actions">
-            <button className="btn btn-ghost" type="button" disabled={probing} onClick={() => void probeBatch()}>
-              {probing ? 'Probing…' : 'Probe codecs'}
-            </button>
             <button
               className="btn btn-primary"
               type="button"
@@ -276,8 +387,8 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
         </div>
         {needs.length === 0 ? (
           <p className="muted">
-            No incompatible files listed. Run <strong>Probe codecs</strong> to analyze containers
-            (MKV/AVI/TS and anything that failed a previous probe).
+            No incompatible files listed. Run <strong>Scan codecs</strong> above to detect which
+            titles need remux or transcode.
           </p>
         ) : (
           <div className="admin-table-wrap">

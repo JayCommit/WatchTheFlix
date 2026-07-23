@@ -143,6 +143,30 @@ export type ConvertNeedsFile = {
   probeError: string | null
 }
 
+export type CodecProbeStatus = {
+  phase: 'idle' | 'running' | 'done' | 'error'
+  force: boolean
+  total: number
+  processed: number
+  direct: number
+  remux: number
+  transcode: number
+  failed: number
+  currentPath: string | null
+  message: string
+  startedAt: string | null
+  finishedAt: string | null
+  error: string | null
+}
+
+export type CodecProbeCoverage = {
+  total: number
+  probed: number
+  unprobed: number
+  needsConvert: number
+  direct: number
+}
+
 export type TmdbSearchResult = {
   tmdbId: number
   title: string
