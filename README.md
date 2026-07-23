@@ -18,6 +18,13 @@ Lightweight cinematic UI for your seedbox. Scans media over **SFTPGo WebDAV**, e
 - SFTPGo with WebDAV enabled
 - [TMDB API key](https://www.themoviedb.org/settings/api)
 
+## Security
+
+- Copy `.env.example` → `.env` and fill real values locally. **Never commit `.env`.**
+- `.gitignore` blocks env files, keys/certs, SQLite under `data/`, and convert temp/originals.
+- Change `APP_PASSWORD` and `SESSION_SECRET` before any shared/public deploy.
+- Prefer HTTPS for SFTPGo WebDAV so credentials and streams stay encrypted.
+
 ## Setup
 
 1. Copy env file and fill in values:

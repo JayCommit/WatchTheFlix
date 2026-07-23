@@ -15,13 +15,25 @@ build/
 *.key
 *.p12
 *.pfx
+*.crt
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
 credentials.json
 service-account*.json
 secrets/
 .secret*
+*.secret
+auth.json
+.npmrc
+# Allow a committed example npmrc only if we add one later:
+# !.npmrc.example
 
-# Runtime data (SQLite library cache, uploads, local state)
-data/
+# Runtime data (SQLite library cache / local state)
+# Keep the folder in git; ignore everything inside it.
+/data/*
+!/data/.gitkeep
 *.db
 *.db-journal
 *.db-wal
@@ -55,11 +67,14 @@ Desktop.ini
 *.sln
 *.sw?
 *.local
+*~
 
 # Temp / convert scratch (if created under project root)
 *.wtf-tmp.mp4
 *.wtf-new.mp4
 .wtf-originals/
+*.tmp
+*.temp
 
 # Optional local tooling
 .turbo/
@@ -67,3 +82,5 @@ Desktop.ini
 tmp/
 temp/
 tsc-out.txt
+.eslintcache
+.vite/
