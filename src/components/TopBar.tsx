@@ -7,6 +7,8 @@ type Props = {
   searchPlaceholder?: string
   actions?: ReactNode
   showSearch?: boolean
+  /** Small pill next to the brand (e.g. Admin). */
+  badge?: string
 }
 
 export function TopBar({
@@ -15,13 +17,18 @@ export function TopBar({
   searchPlaceholder = 'Search titles…',
   actions,
   showSearch = false,
+  badge,
 }: Props) {
   return (
     <header className="topbar">
       <div className="topbar-inner">
-        <Link to="/" className="brand" aria-label="WatchTheFlix home">
-          Watch<span>The</span>Flix
-        </Link>
+        <div className="topbar-brand-block">
+          <Link to="/" className="brand" aria-label="WatchTheFlix home">
+            <span className="brand-mark" aria-hidden />
+            Watch<span>The</span>Flix
+          </Link>
+          {badge ? <span className="topbar-badge">{badge}</span> : null}
+        </div>
 
         {showSearch && onSearchChange ? (
           <label className="topbar-search">
@@ -54,7 +61,9 @@ export function TopBar({
           <div className="topbar-spacer" />
         )}
 
-        <div className="topbar-actions">{actions}</div>
+        <div className="topbar-actions">
+          <div className="topbar-actions-inner">{actions}</div>
+        </div>
       </div>
     </header>
   )

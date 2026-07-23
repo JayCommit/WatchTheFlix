@@ -164,7 +164,7 @@ export function HomePage({ user, onLogout }: Props) {
       {scanMsg ? <span className="muted scan-status hide-sm">{scanMsg}</span> : null}
       {isAdmin ? (
         <Link className="topbar-link hide-sm" to="/admin">
-          Manage
+          Admin
         </Link>
       ) : null}
       {isAdmin ? (

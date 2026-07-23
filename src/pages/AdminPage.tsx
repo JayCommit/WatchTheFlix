@@ -434,27 +434,48 @@ export function AdminPage({ user, onLogout }: Props) {
     }
   }
 
-  const tabs: Array<{ id: Section; label: string; hint?: string }> = useMemo(
+  const tabGroups: Array<{
+    label: string
+    items: Array<{ id: Section; label: string; hint?: string }>
+  }> = useMemo(
     () => [
-      { id: 'overview', label: 'Overview' },
       {
-        id: 'now',
-        label: 'Now Playing',
-        hint: overview?.nowPlayingCount ? String(overview.nowPlayingCount) : undefined,
+        label: 'Monitor',
+        items: [
+          { id: 'overview', label: 'Overview' },
+          {
+            id: 'now',
+            label: 'Now Playing',
+            hint: overview?.nowPlayingCount ? String(overview.nowPlayingCount) : undefined,
+          },
+          { id: 'activity', label: 'Activity' },
+        ],
       },
-      { id: 'library', label: 'Library' },
       {
-        id: 'unmatched',
-        label: 'Unmatched',
-        hint: overview?.stats.unmatched ? String(overview.stats.unmatched) : undefined,
+        label: 'Library',
+        items: [
+          { id: 'library', label: 'Titles' },
+          {
+            id: 'unmatched',
+            label: 'Unmatched',
+            hint: overview?.stats.unmatched ? String(overview.stats.unmatched) : undefined,
+          },
+          { id: 'convert', label: 'Convert' },
+        ],
       },
-      { id: 'activity', label: 'Activity' },
-      { id: 'convert', label: 'Convert' },
-      { id: 'users', label: 'Users' },
-      { id: 'tools', label: 'Tools' },
+      {
+        label: 'System',
+        items: [
+          { id: 'users', label: 'Users' },
+          { id: 'tools', label: 'Tools' },
+        ],
+      },
     ],
     [overview],
   )
+
+  const activeTabLabel =
+    tabGroups.flatMap((g) => g.items).find((t) => t.id === section)?.label ?? 'Admin'
 
   // Keep badge counts fresh when landing on other tabs
   useEffect(() => {
@@ -478,11 +499,12 @@ export function AdminPage({ user, onLogout }: Props) {
   return (
     <div className="app-shell admin-shell page-enter">
       <TopBar
+        badge="Admin"
         actions={
           <>
             {flash ? <span className="muted scan-status hide-sm">{flash}</span> : null}
             <Link className="topbar-link" to="/">
-              Library
+              Cinema
             </Link>
             <button className="btn btn-ghost" type="button" onClick={() => void logout()}>
               Log out
@@ -491,31 +513,58 @@ export function AdminPage({ user, onLogout }: Props) {
         }
       />
 
-      <main className="admin-page">
-        <div className="admin-header">
-          <div>
-            <p className="admin-kicker">Admin</p>
-            <h1>Manage library</h1>
-            <p className="muted">
-              Now playing, rematch unmatched files, edit metadata, and keep the index tidy.
-            </p>
+      <div className="admin-layout">
+        <aside className="admin-rail" aria-label="Admin sections">
+          <div className="admin-rail-brand">
+            <p className="admin-kicker">Control room</p>
+            <strong>Manage</strong>
           </div>
-        </div>
-
-        <nav className="admin-tabs" aria-label="Admin sections">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className={section === t.id ? 'active' : ''}
-              onClick={() => setSection(t.id)}
-            >
-              {t.label}
-              {t.hint ? <span className="admin-tab-count">{t.hint}</span> : null}
-            </button>
+          {tabGroups.map((group) => (
+            <div key={group.label} className="admin-rail-group">
+              <p className="admin-rail-label">{group.label}</p>
+              <nav className="admin-rail-nav">
+                {group.items.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={section === t.id ? 'active' : ''}
+                    onClick={() => setSection(t.id)}
+                  >
+                    <span>{t.label}</span>
+                    {t.hint ? <span className="admin-tab-count">{t.hint}</span> : null}
+                  </button>
+                ))}
+              </nav>
+            </div>
           ))}
-        </nav>
+        </aside>
 
+        <main className="admin-page">
+          <header className="admin-header">
+            <div>
+              <p className="admin-kicker">{activeTabLabel}</p>
+              <h1>{activeTabLabel}</h1>
+              <p className="muted">
+                {section === 'overview'
+                  ? 'Pulse of the library — scans, watchers, and quick jumps.'
+                  : section === 'now'
+                    ? 'Who is watching right now across profiles.'
+                    : section === 'library'
+                      ? 'Browse, rematch, hide, and edit title metadata.'
+                      : section === 'unmatched'
+                        ? 'Titles without a solid TMDB match — clean these up.'
+                        : section === 'activity'
+                          ? 'Recent library events and playback progress.'
+                          : section === 'convert'
+                            ? 'Probe codecs and permanently remux or transcode files.'
+                            : section === 'users'
+                              ? 'Accounts, roles, and access.'
+                              : 'Scan, diagnostics, and maintenance tools.'}
+              </p>
+            </div>
+          </header>
+
+          <div className="admin-content">
         {section === 'overview' ? (
           <OverviewSection
             overview={overview}
@@ -857,7 +906,9 @@ export function AdminPage({ user, onLogout }: Props) {
             onRefreshDiag={() => void loadDiagnostics()}
           />
         ) : null}
-      </main>
+          </div>
+        </main>
+      </div>
 
       {drawer || drawerLoading ? (
         <aside className="admin-drawer" role="dialog" aria-modal="true" aria-label="Title details">
