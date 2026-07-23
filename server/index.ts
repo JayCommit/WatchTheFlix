@@ -1422,7 +1422,8 @@ if (existsSync(distDir)) {
 
 const boot = getConfig()
 const port = boot.port
-console.log(`WatchTheFlix listening on http://localhost:${port}`)
+const hostname = boot.host
+console.log(`WatchTheFlix listening on http://${hostname}:${port}`)
 console.log('Config:', publicConfigSummary())
 if (!boot.webdavUrl || !boot.tmdbApiKey) {
   console.warn('Warning: SFTPGO_WEBDAV_URL and/or TMDB_API_KEY not set. Copy .env.example to .env')
@@ -1434,4 +1435,5 @@ startScanScheduler()
 serve({
   fetch: app.fetch,
   port,
+  hostname,
 })

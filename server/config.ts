@@ -2,6 +2,8 @@ import { config as loadDotenv } from 'dotenv'
 
 export type AppConfig = {
   port: number
+  /** Bind address for the HTTP server (default 0.0.0.0). */
+  host: string
   appPassword: string
   sessionSecret: string
   webdavUrl: string
@@ -51,6 +53,7 @@ function readConfig(): AppConfig {
   const mediaRoots = parseRoots()
   return {
     port: Number(process.env.PORT ?? 8787),
+    host: (process.env.HOST ?? '0.0.0.0').trim() || '0.0.0.0',
     appPassword: process.env.APP_PASSWORD ?? 'changeme',
     sessionSecret: process.env.SESSION_SECRET ?? 'dev-session-secret-change-me',
     webdavUrl: normalizeWebdavUrl(process.env.SFTPGO_WEBDAV_URL ?? ''),

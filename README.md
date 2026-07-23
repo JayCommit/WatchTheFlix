@@ -43,6 +43,7 @@ cp .env.example .env
 | `TMDB_API_KEY` | TMDB v3 API key |
 | `SESSION_SECRET` | Long random string for signed session cookies |
 | `ALLOW_PUBLIC_REGISTRATION` | Allow self-signup as `user` after first admin exists |
+| `HOST` | Bind address (default `0.0.0.0`) |
 | `PORT` | Server port (default `8787`) |
 | `LOCAL_MEDIA_ROOT` | Local mount for convert + disk streaming (e.g. `/media`) |
 | `MEDIA_ROOTS` | Optional comma-separated WebDAV roots (Movies/TV/Anime) |
