@@ -203,6 +203,19 @@ export function BrowsePage({ mode, user, onLogout }: Props) {
           <div className="empty-state">
             <h2>Couldn’t load</h2>
             <p>{error}</p>
+            <button
+              className="btn btn-primary"
+              type="button"
+              onClick={() => {
+                setError('')
+                setItems(null)
+                void reloadItems().catch((err) => {
+                  setError(err instanceof Error ? err.message : 'Failed to load')
+                })
+              }}
+            >
+              Try again
+            </button>
           </div>
         ) : items == null ? (
           <div className="poster-grid browse-grid">

@@ -9,7 +9,7 @@ import { HomeSkeleton } from '../components/Skeleton'
 import { useLibraryScan } from '../hooks/useLibraryScan'
 import type { AuthUser, ContinueItem, LibraryResponse, Title } from '../types'
 import { bindSlashToSearch } from '../utils/focusSearch'
-import { episodeLabel } from '../utils/format'
+import { episodeLabel, formatTime } from '../utils/format'
 import { matchesQuery } from '../utils/titleSearch'
 
 type Props = {
@@ -45,6 +45,7 @@ export function HomePage({ user, onLogout }: Props) {
   const [watchlist, setWatchlist] = useState<Title[]>([])
   const [heroWatchlistBusy, setHeroWatchlistBusy] = useState(false)
   const [dismissingPath, setDismissingPath] = useState<string | null>(null)
+  const [removingWatchlistId, setRemovingWatchlistId] = useState<number | null>(null)
 
   async function load() {
     try {
@@ -171,7 +172,7 @@ export function HomePage({ user, onLogout }: Props) {
     }
   }
 
-  async function dismissContinue(item: ContinueItem) {
+      async function dismissContinue(item: ContinueItem) {
     setDismissingPath(item.path)
     try {
       await api.saveProgress(item.path, 0, item.duration || 1)
@@ -187,6 +188,18 @@ export function HomePage({ user, onLogout }: Props) {
       /* keep row on failure */
     } finally {
       setDismissingPath(null)
+    }
+  }
+
+  async function removeFromHomeList(title: Title) {
+    setRemovingWatchlistId(title.id)
+    try {
+      await api.removeWatchlist(title.id)
+      setWatchlist((prev) => prev.filter((t) => t.id !== title.id))
+    } catch {
+      /* keep item on failure */
+    } finally {
+      setRemovingWatchlistId(null)
     }
   }
 
@@ -225,10 +238,21 @@ export function HomePage({ user, onLogout }: Props) {
       search={query}
       onSearchChange={setQuery}
       navActive="home"
-      actionsExtra={scanMsg ? <span className="muted scan-status hide-sm">{scanMsg}</span> : null}
+      actionsExtra={
+        scanMsg ? (
+          <span className="muted scan-status hide-sm" role="status" aria-live="polite">
+            {scanMsg}
+          </span>
+        ) : null
+      }
       onScan={() => void onScan()}
       scanning={scanning}
     >
+      {scanMsg ? (
+        <div className="admin-toast show-sm-only" role="status" aria-live="polite">
+          {scanMsg}
+        </div>
+      ) : null}
       <main className="page">
         {empty ? (
           <div className="empty-state empty-state-hero">
@@ -342,7 +366,10 @@ export function HomePage({ user, onLogout }: Props) {
                         <span>
                           {item.season != null && item.episode != null
                             ? episodeLabel(item.season, item.episode)
-                            : 'Resume'}
+                            : 'Movie'}
+                          {item.duration > 0 && item.position < item.duration
+                            ? ` · ${formatTime(Math.max(0, item.duration - item.position))} left`
+                            : ''}
                         </span>
                       </Link>
                       <button
@@ -370,7 +397,12 @@ export function HomePage({ user, onLogout }: Props) {
                 }
               >
                 {watchlist.map((t) => (
-                  <PosterCard key={`w-${t.kind}-${t.id}`} title={t} />
+                  <PosterCard
+                    key={`w-${t.kind}-${t.id}`}
+                    title={t}
+                    onRemove={() => void removeFromHomeList(t)}
+                    removing={removingWatchlistId === t.id}
+                  />
                 ))}
               </Row>
             ) : null}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, Link } from 'react-router-dom'
 import { api } from '../api'
 import { CinemaShell } from '../components/cinema'
 import { CastRow, EpisodeList, VersionList, type SeasonFilter } from '../components/detail'
@@ -201,8 +201,13 @@ export function DetailPage({ kind, user, onLogout }: Props) {
       user={user}
       onLogout={onLogout}
       className="detail-page page-enter"
-      actionsExtra={flash ? <span className="muted scan-status hide-sm">{flash}</span> : null}
+      actionsExtra={flash ? <span className="muted scan-status hide-sm" role="status">{flash}</span> : null}
     >
+      {flash ? (
+        <div className="admin-toast show-sm-only" role="status" aria-live="polite">
+          {flash}
+        </div>
+      ) : null}
       <section className="detail-hero hero">
         <div
           className="hero-media"
@@ -236,9 +241,13 @@ export function DetailPage({ kind, user, onLogout }: Props) {
             <h1>{detail.title}</h1>
             <div className="hero-meta">
               {detail.genres.slice(0, 5).map((g) => (
-                <span key={g} className="genre-pill">
+                <Link
+                  key={g}
+                  className="genre-pill genre-pill-link"
+                  to={`/${kind === 'movie' ? 'movies' : 'tv'}?genre=${encodeURIComponent(g)}`}
+                >
                   {g}
-                </span>
+                </Link>
               ))}
             </div>
             {detail.overview ? <p className="detail-overview">{detail.overview}</p> : null}
