@@ -174,7 +174,7 @@ export function DetailPage({ kind }: Props) {
       <TopBar
         actions={
           <>
-            <Link className="topbar-manage" to="/admin">
+            <Link className="topbar-link" to="/admin">
               Manage
             </Link>
             <Link className="btn btn-ghost" to="/">
