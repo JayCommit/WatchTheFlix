@@ -1,16 +1,176 @@
 /* --- Admin convert --- */
 
+.admin-convert {
+  display: grid;
+  gap: 1.15rem;
+  overflow-anchor: none;
+}
+
+.convert-live-dock {
+  position: sticky;
+  top: 0.65rem;
+  z-index: 20;
+  margin: 0;
+}
+
+.convert-live-dock-inner {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 45, 85, 0.28);
+  background:
+    linear-gradient(180deg, rgba(255, 45, 85, 0.12), rgba(8, 10, 18, 0.92)),
+    rgba(8, 10, 18, 0.92);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px);
+}
+
+@media (min-width: 900px) {
+  .convert-live-dock-inner {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    align-items: stretch;
+  }
+}
+
+.convert-live-item {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.convert-live-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.84rem;
+}
+
+.convert-live-label {
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.convert-live-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.convert-live-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  text-align: left;
+}
+
+button.convert-live-link {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+button.convert-live-link:hover {
+  color: var(--accent-hot);
+  text-decoration: underline;
+}
+
+.convert-overview-heading {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.convert-overview-heading h2 {
+  margin: 0;
+}
+
+.convert-overview-lede {
+  margin: 0;
+  max-width: 46rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.convert-inline-banner {
+  margin: 0;
+}
+
+.convert-overview-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: 0.55rem;
+}
+
+.convert-stat {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid rgba(240, 243, 248, 0.08);
+  background: rgba(5, 6, 12, 0.35);
+  min-width: 0;
+}
+
+.convert-stat-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.convert-stat strong {
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.convert-stat-sub {
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-left: 0.1rem;
+}
+
+.convert-stat.is-hot {
+  border-color: rgba(255, 45, 85, 0.35);
+  background: rgba(255, 45, 85, 0.08);
+}
+
+.convert-stat.is-warn {
+  border-color: rgba(255, 180, 70, 0.35);
+  background: rgba(255, 180, 70, 0.07);
+}
+
+.convert-stat.is-muted-hot {
+  border-color: rgba(240, 243, 248, 0.14);
+}
+
+.convert-overview-hint,
+.convert-probe-msg {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
 .convert-progress-block {
-  margin-top: 1rem;
+  margin-top: 0.15rem;
   display: grid;
   gap: 0.4rem;
 }
 
-
 .convert-progress-block.compact {
-  margin-top: 0.55rem;
+  margin-top: 0.15rem;
 }
-
 
 .convert-progress-head {
   display: flex;
@@ -20,14 +180,12 @@
   font-size: 0.85rem;
 }
 
-
 .convert-progress-pct {
   font-variant-numeric: tabular-nums;
   font-size: 0.95rem;
   letter-spacing: 0.02em;
   color: var(--text);
 }
-
 
 .admin-progress-bar {
   height: 8px;
@@ -37,7 +195,6 @@
   border: 1px solid rgba(240, 243, 248, 0.06);
 }
 
-
 .admin-progress-bar i {
   display: block;
   height: 100%;
@@ -45,7 +202,6 @@
   border-radius: inherit;
   transition: width 0.35s ease;
 }
-
 
 .admin-progress-bar.indeterminate i {
   width: 40% !important;
@@ -60,7 +216,6 @@
   );
 }
 
-
 @keyframes convert-bar-pulse {
   0% {
     transform: translateX(-120%);
@@ -70,46 +225,44 @@
   }
 }
 
-
 .convert-path-line {
   font-size: 0.78rem;
-  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-
 
 .convert-path-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.35rem 0.55rem;
   min-width: 0;
 }
 
-
-.convert-path-row .convert-path-line {
+.convert-filename {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-
 
 .convert-title-link {
   color: inherit;
   text-decoration: none;
 }
 
-
 .convert-title-link:hover strong {
   color: var(--accent-hot);
   text-decoration: underline;
 }
-
 
 .version-pill.preferred {
   border-color: rgba(94, 234, 212, 0.45);
   background: rgba(94, 234, 212, 0.12);
   color: var(--cool);
 }
-
 
 .episode-item-actions {
   display: inline-flex;
@@ -119,12 +272,10 @@
   flex-shrink: 0;
 }
 
-
 .login-hint {
   margin: -0.25rem 0 0;
   font-size: 0.82rem;
 }
-
 
 .convert-mode-hint {
   margin: 0;
@@ -138,6 +289,48 @@
   align-items: center;
 }
 
+.convert-options-toggle {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.convert-options-toggle-main {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.convert-options-toggle-main h2 {
+  margin: 0;
+}
+
+.convert-options-summary {
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.convert-options-chevron {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  margin-top: 0.2rem;
+}
+
+.convert-options-footnote {
+  margin: 0;
+  font-size: 0.82rem;
+}
 
 .convert-select-bar {
   display: flex;
@@ -147,7 +340,6 @@
   gap: 0.65rem;
 }
 
-
 .admin-job-title-row {
   display: flex;
   flex-wrap: wrap;
@@ -156,7 +348,6 @@
   gap: 0.45rem 0.75rem;
 }
 
-
 .admin-job-badges {
   display: inline-flex;
   flex-wrap: wrap;
@@ -164,7 +355,15 @@
   align-items: center;
 }
 
-/* Compact convert jobs */
+.convert-main-grid {
+  display: grid;
+  gap: 1.15rem;
+}
+
+#convert-jobs,
+#convert-needs {
+  scroll-margin-top: 5.5rem;
+}
 
 .convert-jobs-heading {
   display: flex;
@@ -202,6 +401,18 @@
   padding: 0;
   display: grid;
   gap: 0.4rem;
+}
+
+.convert-job-list-scroll {
+  max-height: min(22rem, 42vh);
+  overflow: auto;
+  padding-right: 0.15rem;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.convert-job-list-scroll.is-compact-list {
+  max-height: min(16rem, 32vh);
 }
 
 .convert-job-row {
@@ -331,6 +542,97 @@
   margin-top: 0.45rem;
 }
 
+.convert-needs-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.convert-needs-toolbar .admin-input {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+
+.convert-needs-table-wrap {
+  max-height: min(32rem, 58vh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid rgba(240, 243, 248, 0.08);
+  border-radius: 10px;
+  background: rgba(5, 6, 12, 0.22);
+}
+
+.convert-needs-table-wrap .admin-table {
+  margin: 0;
+}
+
+.convert-needs-table-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(10, 12, 20, 0.96);
+  backdrop-filter: blur(6px);
+}
+
+.convert-check-col {
+  width: 2rem;
+}
+
+.convert-codec-code {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.convert-probe-error {
+  font-size: 0.78rem;
+  margin-top: 0.25rem;
+}
+
+.convert-action-hint {
+  font-size: 0.75rem;
+  margin-top: 0.2rem;
+}
+
+.convert-needs-empty {
+  margin: 0.85rem 0.4rem;
+}
+
+.convert-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding-top: 0.15rem;
+}
+
+.convert-pager-status {
+  font-size: 0.84rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 7rem;
+  text-align: center;
+}
+
+.convert-selection-dock {
+  position: sticky;
+  bottom: 0.65rem;
+  z-index: 15;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 45, 85, 0.3);
+  background:
+    linear-gradient(180deg, rgba(255, 45, 85, 0.14), rgba(8, 10, 18, 0.94)),
+    rgba(8, 10, 18, 0.94);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px);
+}
+
 @media (max-width: 720px) {
   .convert-job-row {
     flex-direction: column;
@@ -339,5 +641,13 @@
   .convert-job-actions {
     width: 100%;
     justify-content: flex-end;
+  }
+
+  .convert-needs-toolbar .admin-input {
+    max-width: none;
+  }
+
+  .convert-codec-code {
+    white-space: normal;
   }
 }

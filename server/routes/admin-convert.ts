@@ -22,7 +22,9 @@ import {
   getConvertJob,
   listConvertJobs,
   listFilesNeedingConvert,
+  queryFilesNeedingConvert,
   updateMediaProbe,
+  type NeedsConvertActionFilter,
 } from '../db.ts'
 import { serializeConvertJob } from '../http/serialize.ts'
 import { localMediaEnabled } from '../mediafs.ts'
@@ -68,8 +70,17 @@ export function registerAdminConvertRoutes(app: Hono<Vars>): void {
   app.get('/api/admin/convert/needs', (c) => {
     const denied = requireAdmin(c)
     if (denied) return denied
-    const limit = Math.min(500, Number(c.req.query('limit') ?? 200) || 200)
-    const files = listFilesNeedingConvert(limit).map((f) => ({
+    const limit = Math.min(200, Number(c.req.query('limit') ?? 50) || 50)
+    const offset = Math.max(0, Number(c.req.query('offset') ?? 0) || 0)
+    const q = (c.req.query('q') ?? '').trim()
+    const actionRaw = (c.req.query('action') ?? 'all').toLowerCase()
+    const action = (
+      ['all', 'remux', 'transcode', 'unknown'].includes(actionRaw) ? actionRaw : 'all'
+    ) as NeedsConvertActionFilter
+    const kindRaw = (c.req.query('kind') ?? '').toLowerCase()
+    const kind = kindRaw === 'movie' || kindRaw === 'tv' ? kindRaw : ''
+    const result = queryFilesNeedingConvert({ limit, offset, q, action, kind })
+    const files = result.files.map((f) => ({
       path: f.path,
       filename: f.filename,
       size: f.size,
@@ -87,7 +98,19 @@ export function registerAdminConvertRoutes(app: Hono<Vars>): void {
       probedAt: f.probed_at ?? null,
       probeError: f.probe_error ?? null,
     }))
-    return c.json({ files, localMediaEnabled: localMediaEnabled() })
+    return c.json({
+      files,
+      total: result.total,
+      remuxCount: result.remuxCount,
+      transcodeCount: result.transcodeCount,
+      unknownCount: result.unknownCount,
+      limit,
+      offset,
+      q,
+      action,
+      kind,
+      localMediaEnabled: localMediaEnabled(),
+    })
   })
 
   app.post('/api/admin/convert/probe', async (c) => {

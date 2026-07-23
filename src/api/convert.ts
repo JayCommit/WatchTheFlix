@@ -27,10 +27,33 @@ export const convertApi = {
       method: 'PUT',
       body: JSON.stringify(options),
     }),
-  convertNeeds: (limit = 200) =>
-    request<{ files: ConvertNeedsFile[]; localMediaEnabled: boolean }>(
-      `/api/admin/convert/needs?limit=${limit}`,
-    ),
+  convertNeeds: (opts?: {
+    limit?: number
+    offset?: number
+    q?: string
+    action?: 'all' | 'remux' | 'transcode' | 'unknown'
+    kind?: 'movie' | 'tv' | ''
+  }) => {
+    const params = new URLSearchParams()
+    params.set('limit', String(opts?.limit ?? 50))
+    params.set('offset', String(opts?.offset ?? 0))
+    if (opts?.q?.trim()) params.set('q', opts.q.trim())
+    if (opts?.action && opts.action !== 'all') params.set('action', opts.action)
+    if (opts?.kind) params.set('kind', opts.kind)
+    return request<{
+      files: ConvertNeedsFile[]
+      total: number
+      remuxCount: number
+      transcodeCount: number
+      unknownCount: number
+      limit: number
+      offset: number
+      q: string
+      action: 'all' | 'remux' | 'transcode' | 'unknown'
+      kind: string
+      localMediaEnabled: boolean
+    }>(`/api/admin/convert/needs?${params.toString()}`)
+  },
   convertProbe: (body?: { paths?: string[]; limit?: number }) =>
     request<{
       probed: number
