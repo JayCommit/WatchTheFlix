@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 
 type UsePlayerChromeArgs = {
   videoRef: RefObject<HTMLVideoElement | null>
@@ -8,6 +8,7 @@ type UsePlayerChromeArgs = {
 export function usePlayerChrome({ videoRef, stageRef }: UsePlayerChromeArgs) {
   const hideTimer = useRef<number | null>(null)
   const [showChrome, setShowChrome] = useState(true)
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
   const bumpChrome = useCallback(() => {
     setShowChrome(true)
@@ -22,9 +23,21 @@ export function usePlayerChrome({ videoRef, stageRef }: UsePlayerChromeArgs) {
     const stage = stageRef.current
     if (!stage) return
     if (document.fullscreenElement) void document.exitFullscreen()
-    else void stage.requestFullscreen()
+    else void stage.requestFullscreen().catch(() => undefined)
     bumpChrome()
   }, [stageRef, bumpChrome])
 
-  return { showChrome, bumpChrome, toggleFullscreen }
+  useEffect(() => {
+    const onFs = () => setIsFullscreen(Boolean(document.fullscreenElement))
+    document.addEventListener('fullscreenchange', onFs)
+    return () => document.removeEventListener('fullscreenchange', onFs)
+  }, [])
+
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+    stage.style.cursor = showChrome ? '' : 'none'
+  }, [showChrome, stageRef])
+
+  return { showChrome, bumpChrome, toggleFullscreen, isFullscreen, setShowChrome }
 }

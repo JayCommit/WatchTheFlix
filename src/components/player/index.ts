@@ -1,4 +1,5 @@
 export { PlayerControls } from './PlayerControls'
 export { PlayerHelp } from './PlayerHelp'
+export { PlayerHud } from './PlayerHud'
 export { PlayerLoadError, PlayerMediaError, PlayerPreparing } from './PlayerError'
 export { PlayerUpNext } from './PlayerUpNext'
