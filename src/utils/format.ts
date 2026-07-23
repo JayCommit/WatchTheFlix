@@ -9,10 +9,25 @@ export function formatTime(seconds: number): string {
 }
 
 export function formatBytes(size: number | null | undefined): string {
-  if (!size) return 'Direct stream'
+  if (size == null || !Number.isFinite(size)) return 'Unknown size'
+  if (size <= 0) return '0 MB'
   const mb = size / (1024 * 1024)
   if (mb > 1024) return `${(mb / 1024).toFixed(1)} GB`
   return `${mb.toFixed(0)} MB`
+}
+
+export function sortMediaFiles<T extends { season?: number | null; episode?: number | null; filename: string }>(
+  files: T[],
+): T[] {
+  return [...files].sort((a, b) => {
+    const sa = a.season ?? 0
+    const sb = b.season ?? 0
+    if (sa !== sb) return sa - sb
+    const ea = a.episode ?? 0
+    const eb = b.episode ?? 0
+    if (ea !== eb) return ea - eb
+    return a.filename.localeCompare(b.filename)
+  })
 }
 
 export function episodeLabel(season?: number | null, episode?: number | null): string {

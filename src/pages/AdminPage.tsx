@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { ConvertSection } from '../components/ConvertSection'
@@ -76,6 +76,7 @@ export function AdminPage({ onLogout }: Props) {
 
   const [drawer, setDrawer] = useState<AdminTitle | null>(null)
   const [drawerLoading, setDrawerLoading] = useState(false)
+  const drawerReqRef = useRef(0)
 
   const [overview, setOverview] = useState<AdminOverview | null>(null)
   const [overviewError, setOverviewError] = useState('')
@@ -274,9 +275,13 @@ export function AdminPage({ onLogout }: Props) {
   async function toggleHide(t: AdminTitle) {
     setBusyId(t.id)
     try {
-      await api.hideTitle(t.id, !t.hidden)
+      const updated = await api.hideTitle(t.id, !t.hidden)
       notify(t.hidden ? 'Title unhidden' : 'Title hidden from library')
       await loadTitles()
+      if (drawer?.id === t.id) {
+        setDrawer((prev) => (prev ? { ...prev, hidden: updated.hidden } : prev))
+        await openDrawer(t.id)
+      }
       if (section === 'overview') void loadOverview()
     } catch (err) {
       notify(err instanceof Error ? err.message : 'Hide failed')
@@ -286,14 +291,17 @@ export function AdminPage({ onLogout }: Props) {
   }
 
   async function openDrawer(id: number) {
+    const req = ++drawerReqRef.current
     setDrawerLoading(true)
     try {
       const detail = await api.adminTitle(id)
+      if (req !== drawerReqRef.current) return
       setDrawer(detail)
     } catch (err) {
+      if (req !== drawerReqRef.current) return
       notify(err instanceof Error ? err.message : 'Could not load title')
     } finally {
-      setDrawerLoading(false)
+      if (req === drawerReqRef.current) setDrawerLoading(false)
     }
   }
 
@@ -311,6 +319,7 @@ export function AdminPage({ onLogout }: Props) {
         )
       }
       void loadOverview()
+      if (section === 'library' || section === 'unmatched') void loadTitles()
     } catch (err) {
       setScanMsg(err instanceof Error ? err.message : 'Scan failed')
     } finally {
@@ -422,6 +431,19 @@ export function AdminPage({ onLogout }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    if (!drawer && !drawerLoading) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        drawerReqRef.current += 1
+        setDrawer(null)
+        setDrawerLoading(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [drawer, drawerLoading])
+
   return (
     <div className="app-shell admin-shell page-enter">
       <TopBar
@@ -468,7 +490,14 @@ export function AdminPage({ onLogout }: Props) {
             overview={overview}
             error={overviewError}
             onRetry={() => void loadOverview()}
-            onGo={(s) => setSection(s)}
+            onGo={(s, opts) => {
+              setSection(s)
+              if (opts?.kind) {
+                setKind(opts.kind)
+                setMatchFilter('all')
+              }
+              if (s === 'unmatched') setMatchFilter('unmatched')
+            }}
             onOpenTitle={(id) => {
               setSection('library')
               void openDrawer(id)
@@ -797,10 +826,18 @@ export function AdminPage({ onLogout }: Props) {
       </main>
 
       {drawer || drawerLoading ? (
-        <aside className="admin-drawer" role="dialog" aria-label="Title details">
+        <aside className="admin-drawer" role="dialog" aria-modal="true" aria-label="Title details">
           <div className="admin-drawer-head">
             <h2>{drawer?.title ?? 'Loading…'}</h2>
-            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setDrawer(null)}>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={() => {
+                drawerReqRef.current += 1
+                setDrawer(null)
+                setDrawerLoading(false)
+              }}
+            >
               Close
             </button>
           </div>
@@ -1080,7 +1117,7 @@ function OverviewSection(props: {
   overview: AdminOverview | null
   error: string
   onRetry: () => void
-  onGo: (s: Section) => void
+  onGo: (s: Section, opts?: { kind?: 'movie' | 'tv' }) => void
   onOpenTitle: (id: number) => void
 }) {
   const { overview, error } = props
@@ -1101,8 +1138,16 @@ function OverviewSection(props: {
   return (
     <div className="admin-overview">
       <div className="admin-stat-grid">
-        <StatCard label="Movies" value={s.movies} onClick={() => props.onGo('library')} />
-        <StatCard label="Shows" value={s.shows} onClick={() => props.onGo('library')} />
+        <StatCard
+          label="Movies"
+          value={s.movies}
+          onClick={() => props.onGo('library', { kind: 'movie' })}
+        />
+        <StatCard
+          label="Shows"
+          value={s.shows}
+          onClick={() => props.onGo('library', { kind: 'tv' })}
+        />
         <StatCard label="Files" value={s.files} sub={`${s.movieFiles} movie · ${s.tvFiles} TV`} />
         <StatCard
           label="Unmatched"

@@ -30,7 +30,7 @@ export function LoginPage({ onSuccess }: Props) {
         <h1>
           Watch<span>The</span>Flix
         </h1>
-        <p>Your private cinema. Direct stream from the seedbox — no transcoding.</p>
+        <p>Your private cinema. Stream from the seedbox with direct play, remux, or transcode when needed.</p>
         <form className="login-form" onSubmit={onSubmit}>
           <input
             type="password"

@@ -325,9 +325,15 @@ export function clearLibrary(): void {
 /** Remove files whose paths are not in the given set; prune empty non-override titles. */
 export function pruneMissingFiles(seenPaths: Set<string>): void {
   const all = db.prepare(`SELECT path FROM media_files`).all() as Array<{ path: string }>
-  const del = db.prepare(`DELETE FROM media_files WHERE path = ?`)
+  const delFile = db.prepare(`DELETE FROM media_files WHERE path = ?`)
+  const delProgress = db.prepare(`DELETE FROM progress WHERE path = ?`)
+  const delSessions = db.prepare(`DELETE FROM playback_sessions WHERE path = ?`)
   for (const row of all) {
-    if (!seenPaths.has(row.path)) del.run(row.path)
+    if (!seenPaths.has(row.path)) {
+      delFile.run(row.path)
+      delProgress.run(row.path)
+      delSessions.run(row.path)
+    }
   }
   db.exec(`
     DELETE FROM titles
@@ -962,8 +968,13 @@ export function clearProgressForTitle(titleId: number): number {
 export function markProgressWatched(path: string, durationHint = 0): ProgressRow | undefined {
   const existing = getProgress(path)
   const duration = durationHint > 0 ? durationHint : (existing?.duration ?? 0)
-  const position = duration > 0 ? Math.max(duration * 0.97, duration - 5) : 1
-  upsertProgress(path, position, duration)
+  // Without a known duration, use a 1/1 sentinel so UI treats the file as finished.
+  if (duration <= 0) {
+    upsertProgress(path, 1, 1)
+  } else {
+    const position = Math.max(duration * 0.97, duration - 5)
+    upsertProgress(path, position, duration)
+  }
   return getProgress(path)
 }
 
@@ -1029,10 +1040,13 @@ export function getLibraryStats(): {
       )
       .get() as { c: number }
   ).c
+  // Only count progress that reflects real watching (not probe-only duration stamps).
   const knownDurationSeconds = (
-    db.prepare(`SELECT COALESCE(SUM(duration), 0) AS s FROM progress WHERE duration > 0`).get() as {
-      s: number
-    }
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(duration), 0) AS s FROM progress WHERE duration > 0 AND position > 0`,
+      )
+      .get() as { s: number }
   ).s
   const progressRows = (
     db.prepare(`SELECT COUNT(*) AS c FROM progress`).get() as { c: number }
@@ -1098,12 +1112,8 @@ export function updateMediaProbe(
     new Date().toISOString(),
     path,
   )
-  if (probe.duration != null && probe.duration > 0) {
-    const existing = getProgress(path)
-    if (!existing || !existing.duration) {
-      upsertProgress(path, existing?.position ?? 0, probe.duration)
-    }
-  }
+  // Intentionally do not write probe duration into progress — that inflated
+  // "known runtime" stats and created fake continue-watching rows.
 }
 
 /** Point the library at a new file path after conversion; migrate progress. */
@@ -1307,7 +1317,7 @@ export function convertJobStats(): {
   return {
     queued: row('queued'),
     running: row('running') + row('cancelling'),
-    done: row('done'),
+    done: row('done') + row('skipped'),
     failed: row('failed'),
   }
 }

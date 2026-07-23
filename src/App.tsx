@@ -17,6 +17,12 @@ export default function App() {
       .catch(() => setAuthed(false))
   }, [])
 
+  useEffect(() => {
+    const onUnauthorized = () => setAuthed(false)
+    window.addEventListener('wtf:unauthorized', onUnauthorized)
+    return () => window.removeEventListener('wtf:unauthorized', onUnauthorized)
+  }, [])
+
   if (authed === null) {
     return <div className="loading">Starting WatchTheFlix…</div>
   }

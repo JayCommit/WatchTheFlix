@@ -166,7 +166,7 @@ async function processJob(job: ConvertJobRow): Promise<void> {
 
   if (info.canDirect && job.mode === 'auto') {
     updateConvertJob(job.id, {
-      status: 'done',
+      status: 'skipped',
       progress: 100,
       finishedAt: new Date().toISOString(),
       mode: 'direct',

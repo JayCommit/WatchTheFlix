@@ -1,22 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
-import type { MediaFile, TitleDetail } from '../types'
-import { episodeLabel, formatTime } from '../utils/format'
+import type { TitleDetail } from '../types'
+import { episodeLabel, formatTime, sortMediaFiles } from '../utils/format'
 
 type StreamInfo = Awaited<ReturnType<typeof api.streamInfo>>
-
-function sortEpisodes(files: MediaFile[]): MediaFile[] {
-  return [...files].sort((a, b) => {
-    const sa = a.season ?? 0
-    const sb = b.season ?? 0
-    if (sa !== sb) return sa - sb
-    const ea = a.episode ?? 0
-    const eb = b.episode ?? 0
-    if (ea !== eb) return ea - eb
-    return a.filename.localeCompare(b.filename)
-  })
-}
 
 export function PlayerPage() {
   const [params] = useSearchParams()
@@ -62,22 +50,34 @@ export function PlayerPage() {
       setError('Missing title')
       return
     }
+    let cancelled = false
     const load = kind === 'movie' ? api.movie(titleId) : api.tv(titleId)
     load
       .then((d) => {
+        if (cancelled) return
         setDetail(d)
         const fromQuery = params.get('path')
         if (fromQuery) {
           setPath(fromQuery)
           return
         }
-        if (d.files[0]) {
-          setPath(d.files[0].path)
+        const ordered = sortMediaFiles(d.files)
+        const resume = [...ordered]
+          .filter((f) => f.progress && f.progress.position > 30)
+          .sort((a, b) => (b.progress?.updated_at ?? '').localeCompare(a.progress?.updated_at ?? ''))
+        const pick = resume[0] ?? ordered[0]
+        if (pick) {
+          setPath(pick.path)
           return
         }
         setError('No playable files for this title')
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed to load'))
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load')
+      })
+    return () => {
+      cancelled = true
+    }
   }, [titleId, kind, params])
 
   useEffect(() => {
@@ -272,12 +272,6 @@ export function PlayerPage() {
     video.addEventListener('volumechange', onVolume)
     video.addEventListener('error', onError)
 
-    const onUnload = () => {
-      void saveProgress(true)
-      void sendHeartbeat('stopped')
-    }
-    window.addEventListener('pagehide', onUnload)
-
     const heartbeatTimer = window.setInterval(() => {
       if (!video.paused && !video.ended) void sendHeartbeat('playing')
     }, 18_000)
@@ -295,14 +289,32 @@ export function PlayerPage() {
       video.removeEventListener('canplay', onCanPlay)
       video.removeEventListener('volumechange', onVolume)
       video.removeEventListener('error', onError)
-      window.removeEventListener('pagehide', onUnload)
       window.clearInterval(heartbeatTimer)
+      // Keep Now Playing alive across remux/transcode seeks (src remounts).
       void saveProgress(true)
-      void sendHeartbeat('stopped')
     }
   }, [path, detail, streamInfo, saveProgress, sendHeartbeat, params, srcNonce, absoluteTime])
 
-  const ordered = useMemo(() => (detail ? sortEpisodes(detail.files) : []), [detail])
+  const saveProgressRef = useRef(saveProgress)
+  const sendHeartbeatRef = useRef(sendHeartbeat)
+  saveProgressRef.current = saveProgress
+  sendHeartbeatRef.current = sendHeartbeat
+
+  // True leave only — not remux seek reloads or callback identity changes.
+  useEffect(() => {
+    const onUnload = () => {
+      void saveProgressRef.current(true)
+      void sendHeartbeatRef.current('stopped')
+    }
+    window.addEventListener('pagehide', onUnload)
+    return () => {
+      window.removeEventListener('pagehide', onUnload)
+      void saveProgressRef.current(true)
+      void sendHeartbeatRef.current('stopped')
+    }
+  }, [])
+
+  const ordered = useMemo(() => (detail ? sortMediaFiles(detail.files) : []), [detail])
   const currentIndex = ordered.findIndex((f) => f.path === path)
   const nextFile = kind === 'tv' && currentIndex >= 0 ? ordered[currentIndex + 1] : undefined
   const current = ordered[currentIndex]
@@ -314,6 +326,14 @@ export function PlayerPage() {
     navigate(url)
     setPath(nextFile.path)
   }, [nextFile, detail, navigate, saveProgress])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !nextFile) return
+    const onEnded = () => goNext()
+    video.addEventListener('ended', onEnded)
+    return () => video.removeEventListener('ended', onEnded)
+  }, [nextFile, goNext, srcNonce, path])
 
   const bumpChrome = useCallback(() => {
     setShowChrome(true)

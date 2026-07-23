@@ -61,12 +61,39 @@ export function HomePage({ onLogout }: Props) {
     }
   }, [data])
 
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menuOpen])
+
   const q = query.trim().toLowerCase()
 
   const featured = useMemo(() => {
     if (!data || q) return null
     return data.recent[0] ?? data.movies[0] ?? data.shows[0] ?? null
   }, [data, q])
+
+  const featuredCta = useMemo(() => {
+    if (!featured || !data) return { path: '/', label: 'Browse' }
+    if (featured.kind === 'tv') {
+      return { path: `/tv/${featured.id}`, label: 'Browse episodes' }
+    }
+    const cw = data.continueWatching.find((c) => c.titleId === featured.id)
+    if (cw) {
+      return {
+        path: `/play?path=${encodeURIComponent(cw.path)}&titleId=${cw.titleId}&kind=movie`,
+        label: 'Resume',
+      }
+    }
+    return {
+      path: `/play?titleId=${featured.id}&kind=movie`,
+      label: 'Play',
+    }
+  }, [featured, data])
 
   const filtered = useMemo(() => {
     if (!data) return { movies: [] as Title[], shows: [] as Title[], recent: [] as Title[] }
@@ -286,15 +313,7 @@ export function HomePage({ onLogout }: Props) {
         ) : (
           <>
             {featured ? (
-              <Hero
-                title={featured}
-                ctaPath={
-                  featured.kind === 'movie'
-                    ? `/play?titleId=${featured.id}&kind=movie`
-                    : `/tv/${featured.id}`
-                }
-                ctaLabel={featured.kind === 'movie' ? 'Play' : 'Browse episodes'}
-              />
+              <Hero title={featured} ctaPath={featuredCta.path} ctaLabel={featuredCta.label} />
             ) : null}
 
             {data.continueWatching.length > 0 ? (

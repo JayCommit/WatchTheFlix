@@ -95,8 +95,9 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
 
   async function enqueueOne(path: string) {
     try {
-      await api.convertEnqueue({ path, mode, replaceOriginal, deleteOriginal })
-      notify('Queued convert job')
+      const res = await api.convertEnqueue({ path, mode, replaceOriginal, deleteOriginal })
+      if (res.enqueued) notify('Queued convert job')
+      else notify(res.errors[0] || 'Enqueue failed')
       await refresh()
     } catch (err) {
       notify(err instanceof Error ? err.message : 'Enqueue failed')
@@ -225,7 +226,9 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
                       <i style={{ width: `${Math.min(100, job.progress)}%` }} />
                     </div>
                   )}
-                  {job.error ? <span className="error-text">{job.error}</span> : null}
+                  {job.error ? (
+                    <span className={job.status === 'failed' ? 'error-text' : 'muted'}>{job.error}</span>
+                  ) : null}
                   {job.outputPath ? (
                     <span className="ok-text" style={{ fontSize: '0.85rem' }}>
                       → {job.outputPath}
@@ -253,8 +256,9 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
             <button
               className="btn btn-primary"
               type="button"
-              disabled={!selected.size}
+              disabled={!selected.size || !localMediaEnabled}
               onClick={() => void enqueueSelected()}
+              title={!localMediaEnabled ? 'Set LOCAL_MEDIA_ROOT first' : undefined}
             >
               Queue selected ({selected.size})
             </button>
@@ -302,7 +306,12 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
                     </td>
                     <td>{modeBadge(f.playbackMode, f.canDirect)}</td>
                     <td>
-                      <button className="btn btn-ghost btn-sm" type="button" onClick={() => void enqueueOne(f.path)}>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        type="button"
+                        disabled={!localMediaEnabled}
+                        onClick={() => void enqueueOne(f.path)}
+                      >
                         Convert
                       </button>
                     </td>

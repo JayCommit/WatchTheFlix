@@ -99,7 +99,15 @@ function serializeTitle(row: ReturnType<typeof getTitleById>, extra?: Record<str
     posterPath: row.poster_path,
     backdropPath: row.backdrop_path,
     voteAverage: row.vote_average,
-    genres: row.genres ? (JSON.parse(row.genres) as string[]) : [],
+    genres: (() => {
+      if (!row.genres) return [] as string[]
+      try {
+        const parsed = JSON.parse(row.genres) as unknown
+        return Array.isArray(parsed) ? (parsed as string[]) : []
+      } catch {
+        return [] as string[]
+      }
+    })(),
     hidden: Boolean(row.hidden),
     manualOverride: Boolean(row.manual_override),
     ...extra,

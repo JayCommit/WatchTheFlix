@@ -25,17 +25,21 @@ export function verifySessionToken(token: string | undefined | null): boolean {
     const a = Buffer.from(sig)
     const b = Buffer.from(expected)
     if (a.length !== b.length) return false
-    return timingSafeEqual(a, b) && payload.startsWith('ok:')
+    if (!timingSafeEqual(a, b) || !payload.startsWith('ok:')) return false
+    const issued = Number(payload.slice(3))
+    if (!Number.isFinite(issued)) return false
+    const ageSec = (Date.now() - issued) / 1000
+    return ageSec >= 0 && ageSec <= MAX_AGE_SEC
   } catch {
     return false
   }
 }
 
 export function checkPassword(password: string): boolean {
-  const { appPassword } = getConfig()
-  const a = Buffer.from(password)
-  const b = Buffer.from(appPassword)
-  if (a.length !== b.length) return false
+  const { appPassword, sessionSecret } = getConfig()
+  // Hash both sides so length differences do not short-circuit.
+  const a = createHmac('sha256', sessionSecret).update(password).digest()
+  const b = createHmac('sha256', sessionSecret).update(appPassword).digest()
   return timingSafeEqual(a, b)
 }
 

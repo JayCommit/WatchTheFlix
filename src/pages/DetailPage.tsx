@@ -4,11 +4,13 @@ import { api } from '../api'
 import { DetailSkeleton } from '../components/Skeleton'
 import { TopBar } from '../components/TopBar'
 import type { MediaFile, TitleDetail } from '../types'
-import { episodeLabel, formatBytes, formatTime, isLikelyUnsupported } from '../utils/format'
+import { episodeLabel, formatBytes, formatTime, isLikelyUnsupported, sortMediaFiles } from '../utils/format'
 
 type Props = {
   kind: 'movie' | 'tv'
 }
+
+type SeasonFilter = number | 'all' | 'unknown'
 
 function playUrl(detail: TitleDetail, file: MediaFile, opts?: { fromStart?: boolean }): string {
   const base = `/play?path=${encodeURIComponent(file.path)}&titleId=${detail.id}&kind=${detail.kind}`
@@ -24,24 +26,37 @@ export function DetailPage({ kind }: Props) {
   const navigate = useNavigate()
   const [detail, setDetail] = useState<TitleDetail | null>(null)
   const [error, setError] = useState('')
-  const [season, setSeason] = useState<number | 'all'>('all')
+  const [season, setSeason] = useState<SeasonFilter>('all')
 
   useEffect(() => {
     const num = Number(id)
-    if (!num) return
+    if (!Number.isFinite(num) || num <= 0) {
+      setError('Invalid title id')
+      setDetail(null)
+      return
+    }
+    let cancelled = false
     setDetail(null)
     setError('')
     const load = kind === 'movie' ? api.movie(num) : api.tv(num)
     load
       .then((d) => {
+        if (cancelled) return
         setDetail(d)
         const seasons = [
           ...new Set(d.files.map((f) => f.season).filter((s): s is number => s != null)),
         ].sort((a, b) => a - b)
+        const hasUnknown = d.files.some((f) => f.season == null)
         if (seasons.length > 0) setSeason(seasons[0])
+        else if (hasUnknown) setSeason('all')
         else setSeason('all')
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed to load'))
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load')
+      })
+    return () => {
+      cancelled = true
+    }
   }, [id, kind])
 
   const seasons = useMemo(() => {
@@ -50,6 +65,11 @@ export function DetailPage({ kind }: Props) {
       (a, b) => a - b,
     )
   }, [detail])
+
+  const hasUnknownSeason = useMemo(
+    () => Boolean(detail?.files.some((f) => f.season == null)),
+    [detail],
+  )
 
   const resumeFile = useMemo(() => {
     if (!detail) return null
@@ -63,24 +83,18 @@ export function DetailPage({ kind }: Props) {
     return withProgress[0] ?? null
   }, [detail])
 
-  const primaryFile = resumeFile ?? detail?.files[0] ?? null
-
   const episodes = useMemo(() => {
     if (!detail) return [] as MediaFile[]
-    const list =
-      kind === 'tv' && season !== 'all'
-        ? detail.files.filter((f) => f.season === season)
-        : detail.files
-    return [...list].sort((a, b) => {
-      const sa = a.season ?? 0
-      const sb = b.season ?? 0
-      if (sa !== sb) return sa - sb
-      const ea = a.episode ?? 0
-      const eb = b.episode ?? 0
-      if (ea !== eb) return ea - eb
-      return a.filename.localeCompare(b.filename)
-    })
+    let list = detail.files
+    if (kind === 'tv' && season === 'unknown') {
+      list = detail.files.filter((f) => f.season == null)
+    } else if (kind === 'tv' && season !== 'all') {
+      list = detail.files.filter((f) => f.season === season)
+    }
+    return sortMediaFiles(list)
   }, [detail, kind, season])
+
+  const primaryFile = resumeFile ?? episodes[0] ?? null
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -211,22 +225,26 @@ export function DetailPage({ kind }: Props) {
         <section className="section">
           <div className="section-head">
             <h2>Episodes</h2>
-            {seasons.length > 0 ? (
+            {seasons.length > 0 || hasUnknownSeason ? (
               <label className="season-select">
                 <span className="sr-only">Season</span>
                 <select
-                  value={season === 'all' ? 'all' : String(season)}
+                  value={season === 'all' || season === 'unknown' ? season : String(season)}
                   onChange={(e) => {
                     const v = e.target.value
-                    setSeason(v === 'all' ? 'all' : Number(v))
+                    if (v === 'all' || v === 'unknown') setSeason(v)
+                    else setSeason(Number(v))
                   }}
                 >
-                  {seasons.length > 1 ? <option value="all">All seasons</option> : null}
+                  {(seasons.length > 1 || hasUnknownSeason) && (
+                    <option value="all">All seasons</option>
+                  )}
                   {seasons.map((s) => (
                     <option key={s} value={s}>
                       Season {s}
                     </option>
                   ))}
+                  {hasUnknownSeason ? <option value="unknown">Unknown season</option> : null}
                 </select>
               </label>
             ) : null}
@@ -281,7 +299,7 @@ export function DetailPage({ kind }: Props) {
             <h2>{detail.files.length > 1 ? 'Versions' : 'File'}</h2>
           </div>
           <div className="episode-list" role="list">
-            {detail.files.map((file) => {
+            {sortMediaFiles(detail.files).map((file) => {
               const unsupported = isLikelyUnsupported(file.filename)
               return (
                 <button
