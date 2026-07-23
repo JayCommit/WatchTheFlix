@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { AccountMenu } from '../components/AccountMenu'
 import { MobileNav } from '../components/MobileNav'
 import { PosterCard } from '../components/PosterCard'
 import { TopBar } from '../components/TopBar'
 import type { AuthUser, Title } from '../types'
+import { bindSlashToSearch } from '../utils/focusSearch'
 
 type Mode = 'movies' | 'tv' | 'my-list'
+type SortKey = 'title' | 'year' | 'rating' | 'recent'
 
 type Props = {
   mode: Mode
@@ -27,18 +29,26 @@ const TITLES: Record<Mode, string> = {
   'my-list': 'My List',
 }
 
+function parseSort(raw: string | null, mode: Mode): SortKey {
+  if (raw === 'year' || raw === 'rating' || raw === 'recent' || raw === 'title') return raw
+  return mode === 'my-list' ? 'recent' : 'title'
+}
+
 export function BrowsePage({ mode, user, onLogout }: Props) {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [items, setItems] = useState<Title[] | null>(null)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
-  const [genre, setGenre] = useState('all')
   const [scanning, setScanning] = useState(false)
+  const [removingId, setRemovingId] = useState<number | null>(null)
+
+  const genre = searchParams.get('genre') || 'all'
+  const sort = parseSort(searchParams.get('sort'), mode)
 
   useEffect(() => {
     let cancelled = false
     setItems(null)
     setError('')
-    setGenre('all')
     setQuery('')
 
     const load = async () => {
@@ -61,6 +71,8 @@ export function BrowsePage({ mode, user, onLogout }: Props) {
     }
   }, [mode])
 
+  useEffect(() => bindSlashToSearch(), [])
+
   const genres = useMemo(() => {
     if (!items) return [] as string[]
     const set = new Set<string>()
@@ -71,11 +83,43 @@ export function BrowsePage({ mode, user, onLogout }: Props) {
   const filtered = useMemo(() => {
     if (!items) return []
     const q = query.trim().toLowerCase()
-    return items
+    const list = items
       .filter((t) => (genre === 'all' ? true : t.genres.includes(genre)))
       .filter((t) => matchesQuery(t, q))
-      .sort((a, b) => a.title.localeCompare(b.title))
-  }, [items, query, genre])
+
+    const sorted = [...list]
+    sorted.sort((a, b) => {
+      if (sort === 'year') {
+        return (b.year ?? 0) - (a.year ?? 0) || a.title.localeCompare(b.title)
+      }
+      if (sort === 'rating') {
+        return (b.voteAverage ?? 0) - (a.voteAverage ?? 0) || a.title.localeCompare(b.title)
+      }
+      if (sort === 'recent') {
+        const at = a.addedAt ?? ''
+        const bt = b.addedAt ?? ''
+        if (at || bt) return bt.localeCompare(at) || a.title.localeCompare(b.title)
+        return (b.year ?? 0) - (a.year ?? 0) || a.title.localeCompare(b.title)
+      }
+      return a.title.localeCompare(b.title)
+    })
+    return sorted
+  }, [items, query, genre, sort])
+
+  function setGenre(next: string) {
+    const nextParams = new URLSearchParams(searchParams)
+    if (next === 'all') nextParams.delete('genre')
+    else nextParams.set('genre', next)
+    setSearchParams(nextParams, { replace: true })
+  }
+
+  function setSort(next: SortKey) {
+    const nextParams = new URLSearchParams(searchParams)
+    const defaultSort = mode === 'my-list' ? 'recent' : 'title'
+    if (next === defaultSort) nextParams.delete('sort')
+    else nextParams.set('sort', next)
+    setSearchParams(nextParams, { replace: true })
+  }
 
   async function onScan() {
     if (user.role !== 'admin') return
@@ -85,9 +129,21 @@ export function BrowsePage({ mode, user, onLogout }: Props) {
       const lib = await api.library()
       setItems(mode === 'movies' ? lib.movies : mode === 'tv' ? lib.shows : (await api.watchlist()).items)
     } catch {
-      /* ignore — account menu already surfaces elsewhere */
+      /* ignore */
     } finally {
       setScanning(false)
+    }
+  }
+
+  async function removeFromList(title: Title) {
+    setRemovingId(title.id)
+    try {
+      await api.removeWatchlist(title.id)
+      setItems((prev) => (prev ? prev.filter((t) => t.id !== title.id) : prev))
+    } catch {
+      /* keep item on failure */
+    } finally {
+      setRemovingId(null)
     }
   }
 
@@ -97,7 +153,7 @@ export function BrowsePage({ mode, user, onLogout }: Props) {
         showSearch
         search={query}
         onSearchChange={setQuery}
-        searchPlaceholder={`Search ${TITLES[mode].toLowerCase()}…`}
+        searchPlaceholder={`Search ${TITLES[mode].toLowerCase()}… (/)`}
         navActive={mode === 'my-list' ? 'my-list' : mode}
         actions={<AccountMenu user={user} onLogout={onLogout} onScan={() => void onScan()} scanning={scanning} />}
       />
@@ -115,6 +171,15 @@ export function BrowsePage({ mode, user, onLogout }: Props) {
                   }`}
             </p>
           </div>
+          <label className="browse-sort">
+            <span className="sr-only">Sort by</span>
+            <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
+              <option value="title">A–Z</option>
+              <option value="year">Year</option>
+              <option value="rating">Rating</option>
+              <option value="recent">{mode === 'my-list' ? 'Date added' : 'Newest year'}</option>
+            </select>
+          </label>
         </header>
 
         {genres.length > 0 ? (
@@ -155,24 +220,36 @@ export function BrowsePage({ mode, user, onLogout }: Props) {
             <p>
               {mode === 'my-list'
                 ? 'Your list is empty. Add titles from any detail page.'
-                : query
-                  ? 'No titles match that search.'
+                : query || genre !== 'all'
+                  ? 'No titles match that filter.'
                   : 'Nothing in this collection yet.'}
             </p>
             {mode === 'my-list' ? (
               <Link className="btn btn-primary" to="/">
                 Browse home
               </Link>
-            ) : query ? (
-              <button className="btn btn-ghost" type="button" onClick={() => setQuery('')}>
-                Clear search
+            ) : query || genre !== 'all' ? (
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => {
+                  setQuery('')
+                  setGenre('all')
+                }}
+              >
+                Clear filters
               </button>
             ) : null}
           </div>
         ) : (
           <div className="poster-grid browse-grid">
             {filtered.map((t) => (
-              <PosterCard key={`${t.kind}-${t.id}`} title={t} />
+              <PosterCard
+                key={`${t.kind}-${t.id}`}
+                title={t}
+                onRemove={mode === 'my-list' ? () => void removeFromList(t) : undefined}
+                removing={removingId === t.id}
+              />
             ))}
           </div>
         )}

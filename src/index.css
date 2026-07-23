@@ -631,9 +631,15 @@ img {
   position: relative;
   border: 0;
   padding: 0;
+  margin: 0;
   background: transparent;
   color: inherit;
   text-align: left;
+}
+
+.poster-card-link {
+  display: block;
+  color: inherit;
   cursor: pointer;
 }
 
@@ -648,9 +654,51 @@ img {
 }
 
 .poster-card:hover .poster-art,
-.poster-card:focus-visible .poster-art {
+.poster-card:focus-within .poster-art {
   transform: translateY(-6px) scale(1.04);
   outline-color: rgba(255, 45, 85, 0.45);
+}
+
+.poster-dismiss {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  z-index: 3;
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(5, 6, 12, 0.78);
+  color: #fff;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 160ms ease, background 160ms ease;
+}
+
+.poster-card:hover .poster-dismiss,
+.poster-card:focus-within .poster-dismiss,
+.poster-dismiss:focus-visible {
+  opacity: 1;
+}
+
+.poster-dismiss:hover {
+  background: rgba(255, 45, 85, 0.9);
+}
+
+.poster-dismiss:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.poster-meta-link {
+  display: block;
+  color: inherit;
+}
+
+.poster-meta-link:hover strong {
+  color: var(--accent-hot);
 }
 
 .poster-art img {
@@ -670,7 +718,7 @@ img {
 }
 
 .poster-card:hover .poster-hover,
-.poster-card:focus-visible .poster-hover {
+.poster-card:focus-within .poster-hover {
   opacity: 1;
 }
 
@@ -1414,6 +1462,18 @@ img {
 .skel-btn {
   width: 6rem;
   height: 2.4rem;
+}
+
+.skel-nav {
+  width: 3.6rem;
+  height: 1.1rem;
+  border-radius: 999px;
+}
+
+.skel-avatar {
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 8px;
 }
 
 .skel-heading {
@@ -3229,7 +3289,24 @@ button.linkish {
 }
 
 .browse-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
   padding: 0.5rem var(--pad-x) 0.75rem;
+  flex-wrap: wrap;
+}
+
+.browse-sort select {
+  min-width: 9.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(240, 243, 248, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
 }
 
 .browse-kicker {
@@ -3304,6 +3381,10 @@ button.linkish {
 @media (max-width: 900px) {
   .topbar-nav {
     display: none;
+  }
+
+  .poster-dismiss {
+    opacity: 0.92;
   }
 
   .mobile-nav {

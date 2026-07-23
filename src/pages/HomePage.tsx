@@ -8,7 +8,8 @@ import { PosterCard } from '../components/PosterCard'
 import { Row } from '../components/Row'
 import { HomeSkeleton } from '../components/Skeleton'
 import { TopBar } from '../components/TopBar'
-import type { AuthUser, LibraryResponse, Title } from '../types'
+import type { AuthUser, ContinueItem, LibraryResponse, Title } from '../types'
+import { bindSlashToSearch } from '../utils/focusSearch'
 import { episodeLabel } from '../utils/format'
 
 type Props = {
@@ -35,6 +36,13 @@ function topGenres(titles: Title[], limit = 4): string[] {
     .map(([g]) => g)
 }
 
+function genreBrowsePath(genre: string, titles: Title[]): string {
+  const movies = titles.filter((t) => t.kind === 'movie').length
+  const shows = titles.length - movies
+  const base = shows > movies ? '/tv' : '/movies'
+  return `${base}?genre=${encodeURIComponent(genre)}`
+}
+
 export function HomePage({ user, onLogout }: Props) {
   const isAdmin = user.role === 'admin'
   const [data, setData] = useState<LibraryResponse | null>(null)
@@ -43,6 +51,8 @@ export function HomePage({ user, onLogout }: Props) {
   const [scanMsg, setScanMsg] = useState('')
   const [query, setQuery] = useState('')
   const [watchlist, setWatchlist] = useState<Title[]>([])
+  const [heroWatchlistBusy, setHeroWatchlistBusy] = useState(false)
+  const [dismissingPath, setDismissingPath] = useState<string | null>(null)
 
   async function load() {
     try {
@@ -62,27 +72,12 @@ export function HomePage({ user, onLogout }: Props) {
       .catch(() => undefined)
   }, [])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return
-      const tag = (e.target as HTMLElement | null)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-      if ((e.target as HTMLElement | null)?.isContentEditable) return
-      const input = document.getElementById('wtf-topbar-search') as HTMLInputElement | null
-      if (!input) return
-      e.preventDefault()
-      input.focus()
-      input.select()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  useEffect(() => bindSlashToSearch(), [])
 
   const q = query.trim().toLowerCase()
 
   const featured = useMemo(() => {
     if (!data || q) return null
-    // Prefer a continue-watching title's library entry, else recent
     const cwId = data.continueWatching[0]?.titleId
     if (cwId) {
       const fromCw =
@@ -93,6 +88,8 @@ export function HomePage({ user, onLogout }: Props) {
     }
     return data.recent[0] ?? data.movies[0] ?? data.shows[0] ?? null
   }, [data, q])
+
+  const featuredOnList = featured ? watchlist.some((t) => t.id === featured.id) : false
 
   const featuredCta = useMemo(() => {
     if (!featured || !data) return { path: '/', label: 'Browse' }
@@ -129,13 +126,17 @@ export function HomePage({ user, onLogout }: Props) {
   }, [data, q])
 
   const genreRows = useMemo(() => {
-    if (!data || q) return [] as Array<{ genre: string; titles: Title[] }>
+    if (!data || q) return [] as Array<{ genre: string; titles: Title[]; seeAll: string }>
     const pool = [...data.movies, ...data.shows]
     return topGenres(pool, 4)
-      .map((genre) => ({
-        genre,
-        titles: pool.filter((t) => t.genres.includes(genre)).slice(0, 24),
-      }))
+      .map((genre) => {
+        const titles = pool.filter((t) => t.genres.includes(genre)).slice(0, 24)
+        return {
+          genre,
+          titles,
+          seeAll: genreBrowsePath(genre, titles),
+        }
+      })
       .filter((row) => row.titles.length >= 4)
   }, [data, q])
 
@@ -189,6 +190,46 @@ export function HomePage({ user, onLogout }: Props) {
       setScanMsg(err instanceof Error ? err.message : 'Scan failed')
     } finally {
       setScanning(false)
+    }
+  }
+
+  async function toggleFeaturedWatchlist() {
+    if (!featured || heroWatchlistBusy) return
+    const next = !featuredOnList
+    setHeroWatchlistBusy(true)
+    setWatchlist((prev) =>
+      next ? [featured, ...prev.filter((t) => t.id !== featured.id)] : prev.filter((t) => t.id !== featured.id),
+    )
+    try {
+      if (next) await api.addWatchlist(featured.id)
+      else await api.removeWatchlist(featured.id)
+    } catch {
+      setWatchlist((prev) =>
+        next
+          ? prev.filter((t) => t.id !== featured.id)
+          : [featured, ...prev.filter((t) => t.id !== featured.id)],
+      )
+    } finally {
+      setHeroWatchlistBusy(false)
+    }
+  }
+
+  async function dismissContinue(item: ContinueItem) {
+    setDismissingPath(item.path)
+    try {
+      await api.saveProgress(item.path, 0, item.duration || 1)
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              continueWatching: prev.continueWatching.filter((c) => c.path !== item.path),
+            }
+          : prev,
+      )
+    } catch {
+      /* keep row on failure */
+    } finally {
+      setDismissingPath(null)
     }
   }
 
@@ -303,48 +344,67 @@ export function HomePage({ user, onLogout }: Props) {
         ) : (
           <>
             {featured ? (
-              <Hero title={featured} ctaPath={featuredCta.path} ctaLabel={featuredCta.label} />
+              <Hero
+                title={featured}
+                ctaPath={featuredCta.path}
+                ctaLabel={featuredCta.label}
+                onWatchlist={featuredOnList}
+                watchlistBusy={heroWatchlistBusy}
+                onToggleWatchlist={() => void toggleFeaturedWatchlist()}
+              />
             ) : null}
 
             {data.continueWatching.length > 0 ? (
               <Row title="Continue watching">
-                {data.continueWatching.map((item) => (
-                  <Link
-                    key={item.path}
-                    className="poster-card"
-                    to={`/play?path=${encodeURIComponent(item.path)}&titleId=${item.titleId}&kind=${item.kind}`}
-                  >
-                    <div className="poster-art">
-                      {item.poster ? (
-                        <img src={item.poster} alt="" loading="lazy" />
-                      ) : (
-                        <div className="poster-fallback">{item.title}</div>
-                      )}
-                      <div className="poster-hover" aria-hidden>
-                        <span className="poster-play">▶</span>
-                      </div>
-                      <div className="progress-bar" aria-hidden>
-                        <i
-                          style={{
-                            width: `${
-                              item.duration > 0
-                                ? Math.min(100, (item.position / item.duration) * 100)
-                                : 0
-                            }%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                    <div className="poster-meta">
-                      <strong>{item.title}</strong>
-                      <span>
-                        {item.season != null && item.episode != null
-                          ? episodeLabel(item.season, item.episode)
-                          : 'Resume'}
-                      </span>
-                    </div>
-                  </Link>
-                ))}
+                {data.continueWatching.map((item) => {
+                  const detailPath =
+                    item.kind === 'movie' ? `/movie/${item.titleId}` : `/tv/${item.titleId}`
+                  const playPath = `/play?path=${encodeURIComponent(item.path)}&titleId=${item.titleId}&kind=${item.kind}`
+                  return (
+                    <article key={item.path} className="poster-card cw-card">
+                      <Link className="poster-card-link" to={playPath} title={`Resume ${item.title}`}>
+                        <div className="poster-art">
+                          {item.poster ? (
+                            <img src={item.poster} alt="" loading="lazy" />
+                          ) : (
+                            <div className="poster-fallback">{item.title}</div>
+                          )}
+                          <div className="poster-hover" aria-hidden>
+                            <span className="poster-play">▶</span>
+                          </div>
+                          <div className="progress-bar" aria-hidden>
+                            <i
+                              style={{
+                                width: `${
+                                  item.duration > 0
+                                    ? Math.min(100, (item.position / item.duration) * 100)
+                                    : 0
+                                }%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </Link>
+                      <Link className="poster-meta poster-meta-link" to={detailPath}>
+                        <strong>{item.title}</strong>
+                        <span>
+                          {item.season != null && item.episode != null
+                            ? episodeLabel(item.season, item.episode)
+                            : 'Resume'}
+                        </span>
+                      </Link>
+                      <button
+                        type="button"
+                        className="poster-dismiss"
+                        disabled={dismissingPath === item.path}
+                        aria-label={`Remove ${item.title} from Continue watching`}
+                        onClick={() => void dismissContinue(item)}
+                      >
+                        ×
+                      </button>
+                    </article>
+                  )
+                })}
               </Row>
             ) : null}
 
@@ -402,7 +462,15 @@ export function HomePage({ user, onLogout }: Props) {
             ) : null}
 
             {genreRows.map((row) => (
-              <Row key={row.genre} title={row.genre}>
+              <Row
+                key={row.genre}
+                title={row.genre}
+                action={
+                  <Link className="row-see-all" to={row.seeAll}>
+                    See all
+                  </Link>
+                }
+              >
                 {row.titles.map((t) => (
                   <PosterCard key={`g-${row.genre}-${t.kind}-${t.id}`} title={t} />
                 ))}

@@ -5,9 +5,19 @@ type Props = {
   title: Title
   ctaPath?: string
   ctaLabel?: string
+  onWatchlist?: boolean
+  watchlistBusy?: boolean
+  onToggleWatchlist?: () => void
 }
 
-export function Hero({ title, ctaPath, ctaLabel = 'Play' }: Props) {
+export function Hero({
+  title,
+  ctaPath,
+  ctaLabel = 'Play',
+  onWatchlist = false,
+  watchlistBusy = false,
+  onToggleWatchlist,
+}: Props) {
   const detailPath = title.kind === 'movie' ? `/movie/${title.id}` : `/tv/${title.id}`
   const playPath = ctaPath ?? detailPath
   const metaBits = [
@@ -44,6 +54,16 @@ export function Hero({ title, ctaPath, ctaLabel = 'Play' }: Props) {
           <Link className="btn btn-ghost" to={detailPath}>
             More info
           </Link>
+          {onToggleWatchlist ? (
+            <button
+              type="button"
+              className={`btn btn-ghost${onWatchlist ? ' is-listed' : ''}`}
+              disabled={watchlistBusy}
+              onClick={onToggleWatchlist}
+            >
+              {watchlistBusy ? 'Saving…' : onWatchlist ? '✓ My List' : '+ My List'}
+            </button>
+          ) : null}
         </div>
       </div>
     </section>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
+import { AccountMenu } from '../components/AccountMenu'
 import { MobileNav } from '../components/MobileNav'
 import { DetailSkeleton } from '../components/Skeleton'
 import { TopBar } from '../components/TopBar'
@@ -10,6 +11,7 @@ import { episodeLabel, formatBytes, formatTime, isLikelyUnsupported, sortMediaFi
 type Props = {
   kind: 'movie' | 'tv'
   user: AuthUser
+  onLogout: () => void
 }
 
 type SeasonFilter = number | 'all' | 'unknown'
@@ -23,7 +25,7 @@ function hasResume(file: MediaFile | undefined): boolean {
   return !!file?.progress && file.progress.position > 30
 }
 
-export function DetailPage({ kind, user }: Props) {
+export function DetailPage({ kind, user, onLogout }: Props) {
   const { id } = useParams()
   const navigate = useNavigate()
   const isAdmin = user.role === 'admin'
@@ -31,6 +33,7 @@ export function DetailPage({ kind, user }: Props) {
   const [error, setError] = useState('')
   const [season, setSeason] = useState<SeasonFilter>('all')
   const [onWatchlist, setOnWatchlist] = useState(false)
+  const [watchlistBusy, setWatchlistBusy] = useState(false)
   const [flash, setFlash] = useState('')
   const [preferring, setPreferring] = useState<string | null>(null)
   const [trailers, setTrailers] = useState<Array<{ name: string; url: string }>>([])
@@ -162,29 +165,35 @@ export function DetailPage({ kind, user }: Props) {
     return () => window.removeEventListener('keydown', onKey)
   }, [detail, primaryFile, navigate])
 
+  async function toggleWatchlist() {
+    if (!detail || watchlistBusy) return
+    const next = !onWatchlist
+    setWatchlistBusy(true)
+    setOnWatchlist(next)
+    try {
+      if (next) await api.addWatchlist(detail.id)
+      else await api.removeWatchlist(detail.id)
+      setFlash(next ? 'Added to My List' : 'Removed from My List')
+      window.setTimeout(() => setFlash(''), 2200)
+    } catch (err) {
+      setOnWatchlist(!next)
+      setFlash(err instanceof Error ? err.message : 'Could not update My List')
+      window.setTimeout(() => setFlash(''), 3200)
+    } finally {
+      setWatchlistBusy(false)
+    }
+  }
+
   if (error) {
     return (
       <div className="app-shell page-enter has-mobile-nav">
-        <TopBar
-          actions={
-            <>
-              {isAdmin ? (
-                <Link className="topbar-link" to="/admin">
-                  Manage
-                </Link>
-              ) : null}
-              <Link className="btn btn-ghost" to="/">
-                Home
-              </Link>
-            </>
-          }
-        />
+        <TopBar actions={<AccountMenu user={user} onLogout={onLogout} />} />
         <div className="empty-state">
           <h2>Not found</h2>
           <p>{error}</p>
-          <Link className="btn btn-ghost" to="/">
+          <button className="btn btn-ghost" type="button" onClick={() => navigate('/')}>
             Back home
-          </Link>
+          </button>
         </div>
         <MobileNav />
       </div>
@@ -206,14 +215,7 @@ export function DetailPage({ kind, user }: Props) {
         actions={
           <>
             {flash ? <span className="muted scan-status hide-sm">{flash}</span> : null}
-            {isAdmin ? (
-              <Link className="topbar-link" to="/admin">
-                Manage
-              </Link>
-            ) : null}
-            <Link className="btn btn-ghost" to="/">
-              Home
-            </Link>
+            <AccountMenu user={user} onLogout={onLogout} />
           </>
         }
       />
@@ -285,19 +287,10 @@ export function DetailPage({ kind, user }: Props) {
               <button
                 className={`btn btn-ghost${onWatchlist ? ' is-listed' : ''}`}
                 type="button"
-                onClick={() => {
-                  void (async () => {
-                    if (onWatchlist) {
-                      await api.removeWatchlist(detail.id)
-                      setOnWatchlist(false)
-                    } else {
-                      await api.addWatchlist(detail.id)
-                      setOnWatchlist(true)
-                    }
-                  })()
-                }}
+                disabled={watchlistBusy}
+                onClick={() => void toggleWatchlist()}
               >
-                {onWatchlist ? '✓ My List' : '+ My List'}
+                {watchlistBusy ? 'Saving…' : onWatchlist ? '✓ My List' : '+ My List'}
               </button>
               {trailers[0] ? (
                 <a className="btn btn-ghost" href={trailers[0].url} target="_blank" rel="noreferrer">

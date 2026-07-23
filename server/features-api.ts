@@ -41,6 +41,16 @@ function profileIdFrom(c: Context<{ Variables: AuthVariables }>): number {
   return userFallback
 }
 
+function parseGenres(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? (parsed as string[]) : []
+  } catch {
+    return []
+  }
+}
+
 export function registerFeatureRoutes(app: Hono<Vars>): void {
   app.get('/api/stream/tracks', async (c) => {
     const denied = requireAuth(c)
@@ -151,7 +161,7 @@ export function registerFeatureRoutes(app: Hono<Vars>): void {
       poster: posterUrl(t.poster_path),
       backdrop: backdropUrl(t.backdrop_path),
       voteAverage: t.vote_average,
-      genres: [],
+      genres: parseGenres(t.genres),
       addedAt: t.added_at,
     }))
     return c.json({ items })
