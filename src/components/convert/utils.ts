@@ -21,6 +21,24 @@ export function jobSortKey(job: ConvertJob): number {
   return order[job.status] ?? 9
 }
 
+export function jobFilename(path: string): string {
+  const clean = (path || '').replace(/\\/g, '/')
+  const parts = clean.split('/').filter(Boolean)
+  return parts[parts.length - 1] || path || '—'
+}
+
+export function jobRelativeTime(job: ConvertJob): string {
+  const raw = job.finishedAt || job.startedAt || job.createdAt
+  if (!raw) return ''
+  const t = Date.parse(raw)
+  if (!Number.isFinite(t)) return ''
+  const sec = Math.max(0, Math.round((Date.now() - t) / 1000))
+  if (sec < 45) return 'just now'
+  if (sec < 3600) return `${Math.round(sec / 60)}m ago`
+  if (sec < 86400) return `${Math.round(sec / 3600)}h ago`
+  return `${Math.round(sec / 86400)}d ago`
+}
+
 export function plannedAction(file: ConvertNeedsFile): 'remux' | 'transcode' | 'unknown' {
   if (file.canDirect) return 'unknown'
   if (file.playbackMode === 'remux' || file.videoCodec === 'h264') return 'remux'

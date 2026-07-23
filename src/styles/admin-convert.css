@@ -163,3 +163,181 @@
   gap: 0.35rem;
   align-items: center;
 }
+
+/* Compact convert jobs */
+
+.convert-jobs-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.45rem 0.75rem;
+  min-width: 0;
+}
+
+.convert-jobs-heading h2 {
+  margin: 0;
+}
+
+.convert-jobs-summary {
+  font-size: 0.82rem;
+}
+
+.convert-jobs-groups {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.convert-jobs-group-label {
+  margin: 0 0 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.convert-job-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.convert-job-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.55rem 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid rgba(240, 243, 248, 0.08);
+  background: rgba(5, 6, 12, 0.35);
+  min-width: 0;
+}
+
+.convert-job-row.is-active {
+  border-color: rgba(255, 45, 85, 0.28);
+  background: rgba(255, 45, 85, 0.06);
+}
+
+.convert-job-row.is-compact {
+  padding: 0.42rem 0.65rem;
+  align-items: center;
+}
+
+.convert-job-body {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.convert-job-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+  min-width: 0;
+}
+
+.convert-job-identity {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.convert-job-title {
+  font-size: 0.92rem;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.convert-job-file {
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.convert-job-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.55rem;
+  flex-shrink: 0;
+}
+
+.convert-job-time {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.convert-job-progress {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.convert-job-verb {
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.admin-progress-bar.slim {
+  height: 5px;
+}
+
+.convert-job-error {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: var(--text-muted);
+}
+
+.convert-job-error.is-fail {
+  color: #ff8a9a;
+}
+
+.convert-job-codecs {
+  font-size: 0.74rem;
+}
+
+.convert-job-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.convert-job-actions .btn {
+  padding: 0.28rem 0.55rem;
+  font-size: 0.78rem;
+}
+
+.convert-jobs-more {
+  margin-top: 0.45rem;
+}
+
+@media (max-width: 720px) {
+  .convert-job-row {
+    flex-direction: column;
+  }
+
+  .convert-job-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

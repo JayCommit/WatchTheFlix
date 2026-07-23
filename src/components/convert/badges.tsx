@@ -17,7 +17,8 @@ export function statusBadge(status: string) {
   if (s === 'queued') return <span className="codec-badge muted">Queued</span>
   if (s === 'done') return <span className="codec-badge ok">Done</span>
   if (s === 'failed') return <span className="codec-badge bad">Failed</span>
-  if (s === 'cancelled' || s === 'cancelling') return <span className="codec-badge muted">Cancelled</span>
+  if (s === 'cancelling') return <span className="codec-badge muted">Cancelling</span>
+  if (s === 'cancelled') return <span className="codec-badge muted">Cancelled</span>
   if (s === 'skipped') return <span className="codec-badge ok">Skipped</span>
   return <span className="codec-badge muted">{status}</span>
 }
