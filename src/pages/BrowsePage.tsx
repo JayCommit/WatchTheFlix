@@ -7,6 +7,7 @@ import { PosterCard } from '../components/PosterCard'
 import { TopBar } from '../components/TopBar'
 import type { AuthUser, Title } from '../types'
 import { bindSlashToSearch } from '../utils/focusSearch'
+import { matchesQuery } from '../utils/titleSearch'
 
 type Mode = 'movies' | 'tv' | 'my-list'
 type SortKey = 'title' | 'year' | 'rating' | 'recent'
@@ -15,12 +16,6 @@ type Props = {
   mode: Mode
   user: AuthUser
   onLogout: () => void
-}
-
-function matchesQuery(title: Title, q: string): boolean {
-  if (!q) return true
-  const hay = `${title.title} ${title.year ?? ''} ${title.genres.join(' ')} ${title.overview ?? ''}`.toLowerCase()
-  return hay.includes(q)
 }
 
 const TITLES: Record<Mode, string> = {

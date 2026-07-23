@@ -11,16 +11,11 @@ import { TopBar } from '../components/TopBar'
 import type { AuthUser, ContinueItem, LibraryResponse, Title } from '../types'
 import { bindSlashToSearch } from '../utils/focusSearch'
 import { episodeLabel } from '../utils/format'
+import { matchesQuery } from '../utils/titleSearch'
 
 type Props = {
   user: AuthUser
   onLogout: () => void
-}
-
-function matchesQuery(title: Title, q: string): boolean {
-  if (!q) return true
-  const hay = `${title.title} ${title.year ?? ''} ${title.genres.join(' ')} ${title.overview ?? ''}`.toLowerCase()
-  return hay.includes(q)
 }
 
 function topGenres(titles: Title[], limit = 4): string[] {

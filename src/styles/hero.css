@@ -1,0 +1,106 @@
+/* —— Hero —— */
+.hero {
+  position: relative;
+  width: 100%;
+  min-height: min(92vh, 860px);
+  margin-top: calc(var(--topbar-h) * -1);
+  padding-top: var(--topbar-h);
+  display: grid;
+  align-items: end;
+  overflow: hidden;
+}
+
+.hero-media {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center 20%;
+  transform: scale(1.06);
+  animation: heroIn 1.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.hero-media::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(105deg, rgba(5, 6, 12, 0.96) 0%, rgba(5, 6, 12, 0.55) 42%, rgba(5, 6, 12, 0.12) 72%),
+    linear-gradient(180deg, rgba(5, 6, 12, 0.35) 0%, transparent 35%, rgba(5, 6, 12, 0.98) 100%);
+}
+
+.hero-copy {
+  position: relative;
+  z-index: 1;
+  padding: 0 var(--pad-x) clamp(2.5rem, 6vh, 4rem);
+  max-width: 40rem;
+  animation: rise 800ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.hero-brand {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(1.75rem, 3.2vw, 2.35rem);
+  letter-spacing: -0.04em;
+  color: var(--text);
+  margin: 0 0 0.85rem;
+  line-height: 1;
+}
+
+.hero-brand span {
+  color: var(--accent);
+}
+
+.hero-kicker {
+  color: var(--cool);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-family: var(--font-body);
+  font-weight: 700;
+  margin: 0 0 0.65rem;
+}
+
+.hero h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 5.5vw, 4.4rem);
+  line-height: 0.98;
+  margin: 0 0 0.85rem;
+  letter-spacing: -0.04em;
+  font-weight: 800;
+}
+
+.hero-overview,
+.hero p {
+  margin: 0 0 1.35rem;
+  color: rgba(240, 243, 248, 0.78);
+  font-size: 1.05rem;
+  line-height: 1.55;
+  max-width: 34rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 1.15rem;
+  align-items: center;
+}
+
+.hero-kind {
+  color: var(--cool);
+  font-weight: 600;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+

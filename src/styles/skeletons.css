@@ -1,0 +1,145 @@
+/* —— Empty / loading / skeletons —— */
+.empty-state {
+  padding: 4rem var(--pad-x);
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.empty-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: center;
+  margin-top: 0.35rem;
+}
+
+.empty-state-hero {
+  min-height: min(70vh, 640px);
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.35rem;
+}
+
+.empty-state h2 {
+  font-family: var(--font-display);
+  color: var(--text);
+  margin: 0 0 0.5rem;
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  letter-spacing: -0.04em;
+  font-weight: 800;
+}
+
+.empty-state .hero-brand {
+  margin-bottom: 0.5rem;
+}
+
+.empty-state .btn {
+  margin-top: 0.85rem;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.loading {
+  min-height: 60vh;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+}
+
+.skel {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04),
+    rgba(255, 45, 85, 0.08),
+    rgba(255, 255, 255, 0.04)
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: var(--radius-sm);
+}
+
+.skel-hero {
+  min-height: min(70vh, 640px);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 70%);
+  animation: shimmer 1.4s ease infinite;
+}
+
+.skel-search {
+  flex: 1;
+  max-width: 320px;
+  height: 2.4rem;
+  margin: 0 auto;
+}
+
+.skel-btn {
+  width: 6rem;
+  height: 2.4rem;
+}
+
+.skel-nav {
+  width: 3.6rem;
+  height: 1.1rem;
+  border-radius: 999px;
+}
+
+.skel-avatar {
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 8px;
+}
+
+.skel-heading {
+  width: 10rem;
+  height: 1.4rem;
+  margin-bottom: 0.9rem;
+}
+
+.skel-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(140px, 12vw);
+  gap: 0.85rem;
+  overflow: hidden;
+}
+
+.skel-poster {
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius);
+}
+
+.skel-detail {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 1.75rem;
+  padding: 3rem 4vw;
+}
+
+.skel-detail-poster {
+  aspect-ratio: 2 / 3;
+  border-radius: 12px;
+}
+
+.skel-detail-copy {
+  display: grid;
+  gap: 0.85rem;
+  align-content: start;
+  padding-top: 2rem;
+}
+
+.skel-title {
+  width: min(420px, 80%);
+  height: 2.8rem;
+}
+
+.skel-line {
+  width: min(520px, 90%);
+  height: 0.9rem;
+}
+
+.skel-line.short {
+  width: min(280px, 60%);
+}
+

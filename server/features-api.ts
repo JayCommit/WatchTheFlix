@@ -1,5 +1,5 @@
-import type { Context, Hono } from 'hono'
-import { getCookie, setCookie } from 'hono/cookie'
+import type { Hono } from 'hono'
+import { setCookie } from 'hono/cookie'
 import { dirname, join } from 'node:path'
 import {
   addToWatchlist,
@@ -19,8 +19,8 @@ import {
   upsertProfileProgress,
   userOwnsProfile,
 } from './db.ts'
-import { getDefaultProfileIdForUser } from './users.ts'
 import { getTitleHealth } from './health.ts'
+import { profileIdFrom } from './http/profile.ts'
 import { safeUnlink, resolveLocalPath } from './mediafs.ts'
 import { versionLabel, qualityRank } from './quality.ts'
 import { extractSubtitleVtt, getStreamInfo } from './playback.ts'
@@ -30,16 +30,6 @@ import { backdropUrl, getCredits, getTrailers, posterUrl } from './tmdb.ts'
 import { requireAdmin, requireAuth, type AuthVariables } from './auth-mw.ts'
 
 type Vars = { Variables: AuthVariables }
-
-function profileIdFrom(c: Context<{ Variables: AuthVariables }>): number {
-  const user = c.get('user')
-  if (!user) return 1
-  const userFallback = getDefaultProfileIdForUser(user.id)
-  const raw = c.req.header('x-profile-id') || getCookie(c, 'wtf_profile') || String(userFallback)
-  const id = Number(raw)
-  if (Number.isFinite(id) && id > 0 && userOwnsProfile(user.id, id)) return id
-  return userFallback
-}
 
 function parseGenres(raw: string | null | undefined): string[] {
   if (!raw) return []

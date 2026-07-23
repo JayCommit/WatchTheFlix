@@ -1,0 +1,172 @@
+/* —— Login —— */
+.login-screen {
+  position: relative;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem var(--pad-x);
+  overflow: hidden;
+}
+
+.login-screen::before {
+  content: '';
+  position: absolute;
+  inset: -15%;
+  background:
+    radial-gradient(ellipse 55% 45% at 72% 18%, rgba(255, 45, 85, 0.24), transparent 55%),
+    radial-gradient(ellipse 45% 40% at 12% 78%, rgba(94, 234, 212, 0.1), transparent 50%),
+    #05060c;
+  animation: loginGlow 14s ease-in-out infinite alternate;
+}
+
+.login-ambient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 80%, rgba(255, 45, 85, 0.08), transparent 40%),
+    radial-gradient(circle at 85% 30%, rgba(94, 234, 212, 0.06), transparent 35%);
+}
+
+.login-panel {
+  position: relative;
+  z-index: 1;
+  width: min(440px, 100%);
+  text-align: left;
+  padding: 2.75rem 2.25rem 2.35rem;
+  border-radius: 16px;
+  border: 1px solid rgba(240, 243, 248, 0.12);
+  background: rgba(8, 10, 18, 0.78);
+  backdrop-filter: blur(22px);
+  box-shadow: var(--shadow);
+  animation: rise 650ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.login-eyebrow {
+  margin: 0 0 0.65rem;
+  color: var(--cool);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.login-panel h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 7vw, 3.2rem);
+  margin: 0 0 0.75rem;
+  letter-spacing: -0.05em;
+  font-weight: 800;
+  line-height: 0.95;
+}
+
+.login-panel h1 span {
+  color: var(--accent);
+}
+
+.login-panel > p {
+  color: var(--text-muted);
+  margin: 0 0 1.75rem;
+  line-height: 1.55;
+  font-size: 1.02rem;
+}
+
+.login-form {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.field-label {
+  display: grid;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.field-label span {
+  letter-spacing: 0.02em;
+}
+
+.login-form input {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--text);
+  padding: 0.95rem 1.05rem;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.login-form input:focus {
+  border-color: rgba(255, 45, 85, 0.55);
+  box-shadow: 0 0 0 3px rgba(255, 45, 85, 0.15);
+}
+
+.error-text {
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.ok-text {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.scan-status {
+  max-width: 28vw;
+  text-align: right;
+  font-size: 0.85rem;
+}
+
+.admin-toast {
+  position: fixed;
+  top: calc(var(--topbar-h) + 0.55rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1400;
+  max-width: min(92vw, 28rem);
+  padding: 0.7rem 1.05rem;
+  border-radius: 10px;
+  background: rgba(12, 14, 24, 0.94);
+  border: 1px solid rgba(240, 243, 248, 0.14);
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.35;
+  text-align: center;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.user-chip {
+  font-size: 0.85rem;
+  letter-spacing: 0.01em;
+}
+
+.diag-panel {
+  margin: 2rem auto 0;
+  max-width: 560px;
+  text-align: left;
+  padding: 1.25rem 1.4rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.diag-panel h2 {
+  font-size: 1.15rem;
+}
+
+.diag-list {
+  margin: 0.75rem 0;
+  padding-left: 1.1rem;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
+.diag-list code {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
