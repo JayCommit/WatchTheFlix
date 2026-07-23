@@ -426,6 +426,17 @@ app.post('/api/scan', async (c) => {
     )
   }
 
+  const cfg = getConfig()
+  if (!cfg.tmdbApiKey) {
+    return c.json(
+      {
+        error: 'TMDB_API_KEY is missing in .env — add a key, then scan again',
+        ...scanStatusPayload(),
+      },
+      400,
+    )
+  }
+
   console.log('Scan starting with config:', publicConfigSummary())
   // Fire-and-forget under lock so proxies/browsers don't time out on large libraries
   void withScanLock(async () => {
@@ -610,6 +621,7 @@ app.get('/api/admin/titles/:id', (c) => {
   if (!title) return c.json({ error: 'Not found' }, 404)
   const files = getFilesForTitle(id).map((f) => {
     const progress = getProgress(f.path) ?? null
+    const preferred = getPreferredFile(id, f.season, f.episode)
     return {
       path: f.path,
       filename: f.filename,
@@ -618,6 +630,7 @@ app.get('/api/admin/titles/:id', (c) => {
       episode: f.episode,
       episodeName: f.episode_name,
       progress,
+      preferred: preferred === f.path,
       container: f.container ?? null,
       videoCodec: f.video_codec ?? null,
       audioCodec: f.audio_codec ?? null,

@@ -1018,12 +1018,18 @@ export function AdminPage({ user, onLogout }: Props) {
                             {drawer.kind === 'tv'
                               ? episodeLabel(f.season, f.episode)
                               : f.filename}
+                            {f.preferred ? (
+                              <span className="version-pill preferred" style={{ marginLeft: '0.4rem' }}>
+                                Preferred
+                              </span>
+                            ) : null}
                           </strong>
                           <span className="muted">
                             {drawer.kind === 'tv' ? f.filename : formatBytes(f.size)}
                             {f.episodeName ? ` · ${f.episodeName}` : ''}
                           </span>
                           <div className="codec-row">
+                            {f.preferred ? <span className="codec-badge ok">Preferred</span> : null}
                             {f.canDirect ? (
                               <span className="codec-badge ok">Direct</span>
                             ) : f.playbackMode === 'remux' ? (
@@ -1056,6 +1062,19 @@ export function AdminPage({ user, onLogout }: Props) {
                           >
                             Play
                           </Link>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            type="button"
+                            title={f.path}
+                            onClick={() => {
+                              void navigator.clipboard.writeText(f.path).then(
+                                () => notify('Path copied'),
+                                () => notify('Could not copy path'),
+                              )
+                            }}
+                          >
+                            Copy path
+                          </button>
                           <button
                             className="btn btn-ghost btn-sm"
                             type="button"
@@ -1113,6 +1132,7 @@ export function AdminPage({ user, onLogout }: Props) {
                           <button
                             className="btn btn-ghost btn-sm"
                             type="button"
+                            disabled={Boolean(f.preferred)}
                             onClick={() => {
                               if (!drawer) return
                               void (async () => {
@@ -1126,7 +1146,7 @@ export function AdminPage({ user, onLogout }: Props) {
                               })()
                             }}
                           >
-                            Prefer
+                            {f.preferred ? 'Preferred' : 'Prefer'}
                           </button>
                           <button
                             className="btn btn-ghost btn-sm"
@@ -1302,7 +1322,12 @@ function OverviewSection(props: {
           value={overview.ffmpegAvailable ? 'OK' : 'Off'}
           warn={!overview.ffmpegAvailable}
         />
-        <StatCard label="Last scan" value={relativeAge(overview.lastScan)} small />
+        <StatCard
+          label="Last scan"
+          value={relativeAge(overview.lastScan)}
+          small
+          onClick={() => props.onGo('tools')}
+        />
       </div>
 
       <section className="admin-panel">
@@ -1620,13 +1645,16 @@ function ToolsSection(props: {
         {props.scanMsg ? (
           <p
             className={
-              props.scanMsg.toLowerCase().includes('fail') || props.scanMsg.includes('0 video')
-                ? 'error-text'
-                : 'ok-text'
+              /fail|missing|tmdb|0 video|error/i.test(props.scanMsg) ? 'error-text' : 'ok-text'
             }
             style={{ marginTop: '1rem' }}
           >
             {props.scanMsg}
+          </p>
+        ) : null}
+        {progress?.phase === 'error' && progress.message && progress.message !== props.scanMsg ? (
+          <p className="error-text" style={{ marginTop: '0.5rem' }}>
+            {progress.message}
           </p>
         ) : null}
         {uniqueErrors.length > 0 ? (
@@ -1710,7 +1738,14 @@ function ToolsSection(props: {
                   : 'manual only'}
               </code>
             </li>
-            <li>TMDB key: {props.diag.config.tmdbKeySet ? 'set' : 'missing'}</li>
+            <li>
+              TMDB key:{' '}
+              {props.diag.config.tmdbKeySet ? (
+                <span className="ok-text">set</span>
+              ) : (
+                <span className="error-text">missing — scans will fail until you set TMDB_API_KEY</span>
+              )}
+            </li>
             <li>
               FFmpeg:{' '}
               {props.diag.playback?.ffmpegAvailable ? (

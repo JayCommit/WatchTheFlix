@@ -29,7 +29,9 @@ import {
   buildConvertFileArgs,
   clearProbeCache,
   getStreamInfo,
+  pickConvertMode,
   type PlaybackMode,
+  type StreamInfo,
 } from './playback.ts'
 
 const cancelRequested = new Set<number>()
@@ -40,6 +42,26 @@ function parseTimeToSeconds(time: string): number | null {
   const m = time.match(/(\d+):(\d+):(\d+(?:\.\d+)?)/)
   if (!m) return null
   return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3])
+}
+
+function progressFromFfmpegChunk(chunk: string, durationHint: number | null): number | null {
+  // Prefer out_time_ms / out_time_us from -progress style lines when present
+  const ms = /out_time_ms=(\d+)/.exec(chunk)
+  if (ms && durationHint && durationHint > 0) {
+    const t = Number(ms[1]) / 1_000_000
+    if (Number.isFinite(t)) return Math.min(99, Math.round((t / durationHint) * 1000) / 10)
+  }
+  const us = /out_time_us=(\d+)/.exec(chunk)
+  if (us && durationHint && durationHint > 0) {
+    const t = Number(us[1]) / 1_000_000
+    if (Number.isFinite(t)) return Math.min(99, Math.round((t / durationHint) * 1000) / 10)
+  }
+  const tm = /time=(\d+:\d+:\d+(?:\.\d+)?)/.exec(chunk)
+  if (tm && durationHint && durationHint > 0) {
+    const t = parseTimeToSeconds(tm[1]!)
+    if (t != null) return Math.min(99, Math.round((t / durationHint) * 1000) / 10)
+  }
+  return null
 }
 
 async function probeLocalFile(localPath: string): Promise<{
@@ -111,6 +133,8 @@ function runFfmpegConvert(
   return new Promise((resolve, reject) => {
     const proc = spawn(binFfmpeg(), args, { windowsHide: true })
     let stderr = ''
+    let lastPct = -1
+    let lastWrite = 0
 
     proc.stderr.on('data', (d: Buffer) => {
       const chunk = d.toString()
@@ -126,14 +150,14 @@ function runFfmpegConvert(
         return
       }
 
-      const tm = /time=(\d+:\d+:\d+(?:\.\d+)?)/.exec(chunk)
-      if (tm && durationHint && durationHint > 0) {
-        const t = parseTimeToSeconds(tm[1]!)
-        if (t != null) {
-          const pct = Math.min(99, Math.round((t / durationHint) * 1000) / 10)
-          updateConvertJob(jobId, { progress: pct })
-        }
-      }
+      const pct = progressFromFfmpegChunk(chunk, durationHint)
+      if (pct == null) return
+      const now = Date.now()
+      // Throttle DB writes; always allow first tick and jumps of ≥0.5%
+      if (pct < lastPct + 0.5 && now - lastWrite < 400) return
+      lastPct = pct
+      lastWrite = now
+      updateConvertJob(jobId, { progress: pct })
     })
 
     proc.on('error', reject)
@@ -151,6 +175,18 @@ function runFfmpegConvert(
   })
 }
 
+function applyProbeToDb(path: string, info: StreamInfo): void {
+  updateMediaProbe(path, {
+    container: info.container,
+    videoCodec: info.videoCodec,
+    audioCodec: info.audioCodec,
+    playbackMode: info.mode,
+    canDirect: info.canDirect,
+    probeError: info.probeFailed ? info.probeError || info.reason : null,
+    duration: info.duration,
+  })
+}
+
 async function processJob(job: ConvertJobRow): Promise<void> {
   const started = new Date().toISOString()
   updateConvertJob(job.id, { status: 'running', startedAt: started, progress: 1, error: null })
@@ -164,15 +200,7 @@ async function processJob(job: ConvertJobRow): Promise<void> {
 
   clearProbeCache(job.path)
   const info = await getStreamInfo(job.path)
-  updateMediaProbe(job.path, {
-    container: info.container,
-    videoCodec: info.videoCodec,
-    audioCodec: info.audioCodec,
-    playbackMode: info.mode,
-    canDirect: info.canDirect,
-    probeError: info.probeFailed ? info.probeError || info.reason : null,
-    duration: info.duration,
-  })
+  applyProbeToDb(job.path, info)
 
   if (info.probeFailed || !info.videoCodec) {
     throw new Error(
@@ -181,14 +209,9 @@ async function processJob(job: ConvertJobRow): Promise<void> {
     )
   }
 
-  const mode: 'remux' | 'transcode' =
-    job.mode === 'remux' || job.mode === 'transcode'
-      ? job.mode
-      : info.mode === 'transcode'
-        ? 'transcode'
-        : 'remux'
+  const picked = pickConvertMode(job.mode, info)
 
-  if (info.canDirect && job.mode === 'auto') {
+  if (picked === 'skip') {
     updateConvertJob(job.id, {
       status: 'skipped',
       progress: 100,
@@ -202,12 +225,18 @@ async function processJob(job: ConvertJobRow): Promise<void> {
     return
   }
 
+  const mode = picked
   updateConvertJob(job.id, {
     mode,
     container: info.container,
     videoCodec: info.videoCodec,
     audioCodec: info.audioCodec,
+    progress: 2,
   })
+
+  console.log(
+    `Convert #${job.id}: ${mode} · ${info.videoCodec}/${info.audioCodec || '?'} · ${job.path}`,
+  )
 
   const { tempPath, finalLocal } = planConvertOutput(local)
   safeUnlink(tempPath)
@@ -259,14 +288,7 @@ async function processJob(job: ConvertJobRow): Promise<void> {
     clearProbeCache(newLibraryPath)
 
     const newInfo = await getStreamInfo(newLibraryPath)
-    updateMediaProbe(newLibraryPath, {
-      container: newInfo.container,
-      videoCodec: newInfo.videoCodec,
-      audioCodec: newInfo.audioCodec,
-      playbackMode: newInfo.mode,
-      canDirect: newInfo.canDirect,
-      duration: newInfo.duration,
-    })
+    applyProbeToDb(newLibraryPath, newInfo)
 
     updateConvertJob(job.id, {
       status: 'done',
@@ -297,14 +319,7 @@ async function processJob(job: ConvertJobRow): Promise<void> {
         episodeName: media.episode_name,
       })
       const newInfo = await getStreamInfo(newLibraryPath)
-      updateMediaProbe(newLibraryPath, {
-        container: newInfo.container,
-        videoCodec: newInfo.videoCodec,
-        audioCodec: newInfo.audioCodec,
-        playbackMode: newInfo.mode,
-        canDirect: newInfo.canDirect,
-        duration: newInfo.duration,
-      })
+      applyProbeToDb(newLibraryPath, newInfo)
     }
     updateConvertJob(job.id, {
       status: 'done',
@@ -348,7 +363,7 @@ export function startConvertWorker(): void {
   console.log('Convert worker started')
   timer = setInterval(() => {
     void tick()
-  }, 2000)
+  }, 1500)
   void tick()
 }
 
@@ -368,22 +383,31 @@ export async function enqueueConvertForPath(
   const media = getMediaFileByPath(path)
   if (!media) throw new Error('Unknown media path — scan the library first')
   const title = getTitleById(media.title_id)
+  clearProbeCache(path)
   const info = await getStreamInfo(path)
-  updateMediaProbe(path, {
-    container: info.container,
-    videoCodec: info.videoCodec,
-    audioCodec: info.audioCodec,
-    playbackMode: info.mode,
-    canDirect: info.canDirect,
-    duration: info.duration,
-  })
+  applyProbeToDb(path, info)
 
+  if (info.probeFailed || !info.videoCodec) {
+    throw new Error(
+      info.probeError ||
+        'Could not detect codecs for this file — run Scan codecs, then try again',
+    )
+  }
+
+  const requested = opts?.mode ?? 'auto'
+  const resolved = pickConvertMode(requested, info)
+
+  if (resolved === 'skip') {
+    throw new Error('Already browser-compatible (direct play) — nothing to convert')
+  }
+
+  // Persist the concrete mode (remux/transcode) so the queue never sits on opaque "auto"
   const { enqueueConvertJob } = await import('./db.ts')
   const job = enqueueConvertJob({
     path,
     titleId: media.title_id,
     titleName: title?.title ?? null,
-    mode: opts?.mode ?? 'auto',
+    mode: resolved,
     replaceOriginal: opts?.replaceOriginal,
     deleteOriginal: opts?.deleteOriginal ?? getConfig().convertDeleteOriginalDefault,
     container: info.container,
@@ -391,7 +415,7 @@ export async function enqueueConvertForPath(
     audioCodec: info.audioCodec,
   })
   void tick()
-  return { job, info }
+  return { job, info, resolvedMode: resolved as 'remux' | 'transcode' }
 }
 
 export type { PlaybackMode }

@@ -87,10 +87,6 @@ export function readLastScanResult(): ScanResult | null {
 
 export async function scanLibrary(): Promise<ScanResult> {
   const cfg = getConfig()
-  if (!cfg.tmdbApiKey) {
-    throw new Error('TMDB_API_KEY is missing in .env')
-  }
-
   const source: ScanSource = localMediaEnabled() ? 'local' : 'webdav'
   const startedAt = new Date().toISOString()
   const progress: ScanProgress = {
@@ -108,6 +104,18 @@ export async function scanLibrary(): Promise<ScanResult> {
         : 'Listing video files over WebDAV…',
     startedAt,
   }
+
+  // Persist error phase before throwing so the UI never sees a silent/stale success
+  if (!cfg.tmdbApiKey) {
+    const msg = 'TMDB_API_KEY is missing in .env'
+    progress.phase = 'error'
+    progress.message = msg
+    progress.finishedAt = new Date().toISOString()
+    progress.errors = [msg]
+    writeProgress(progress)
+    throw new Error(msg)
+  }
+
   writeProgress(progress)
 
   try {
@@ -208,10 +216,18 @@ export async function scanLibrary(): Promise<ScanResult> {
 
         let cached = titleCache.get(cacheKey)
         if (!cached) {
-          const meta =
-            parsed.kind === 'tv'
-              ? await searchTv(parsed.title, parsed.year)
-              : await searchMovie(parsed.title, parsed.year)
+          // TMDB failures (401/network) still index as unmatched so files aren't dropped
+          let meta: Awaited<ReturnType<typeof searchMovie>> = null
+          let tmdbErr: string | null = null
+          try {
+            meta =
+              parsed.kind === 'tv'
+                ? await searchTv(parsed.title, parsed.year)
+                : await searchMovie(parsed.title, parsed.year)
+          } catch (err) {
+            tmdbErr = err instanceof Error ? err.message : String(err)
+            errors.push(`${video.path}: ${tmdbErr}`)
+          }
 
           if (!meta) {
             unmatched += 1
@@ -219,7 +235,9 @@ export async function scanLibrary(): Promise<ScanResult> {
               kind: parsed.kind,
               tmdbId: -Math.abs(hashString(cacheKey)),
               title: parsed.title,
-              overview: 'No TMDB match found for this release name.',
+              overview: tmdbErr
+                ? `TMDB lookup failed (${tmdbErr}). Rematch when the API is available.`
+                : 'No TMDB match found for this release name.',
               year: parsed.year,
               posterPath: null,
               backdropPath: null,
@@ -280,7 +298,41 @@ export async function scanLibrary(): Promise<ScanResult> {
         }
       } catch (err) {
         unmatched += 1
-        errors.push(`${video.path}: ${err instanceof Error ? err.message : String(err)}`)
+        const msg = err instanceof Error ? err.message : String(err)
+        errors.push(`${video.path}: ${msg}`)
+        // Last resort: still try to index so the file isn't invisible after a hard failure
+        try {
+          const parsed = parseMediaPath(video.path)
+          const cacheKey = normalizeTitleKey(parsed)
+          let cached = titleCache.get(cacheKey)
+          if (!cached) {
+            const titleId = upsertTitle({
+              kind: parsed.kind,
+              tmdbId: -Math.abs(hashString(cacheKey)),
+              title: parsed.title,
+              overview: `Indexed after scan error: ${msg}`,
+              year: parsed.year,
+              posterPath: null,
+              backdropPath: null,
+              voteAverage: null,
+              genres: [],
+            })
+            cached = { titleId, tmdbId: -1, matched: false }
+            titleCache.set(cacheKey, cached)
+          }
+          upsertMediaFile({
+            path: video.path,
+            filename: video.filename,
+            size: video.size,
+            titleId: cached.titleId,
+            season: parsed.season,
+            episode: parsed.episode,
+            episodeName: parsed.episodeName,
+            keepEpisodeName: !parsed.episodeName,
+          })
+        } catch {
+          /* path unparseable — leave as error-only */
+        }
       }
 
       processed += 1

@@ -178,15 +178,19 @@ export const api = {
   /** @deprecated Prefer runScan() — kept for callers that expect the old sync shape */
   scan: () => api.runScan(),
   runScan: async (onUpdate?: (status: ScanStatusResponse) => void): Promise<ScanResult> => {
+    const kickedOffAt = Date.now()
+    let scanStartedAt: string | null = null
     try {
       const started = await api.scanStart()
       onUpdate?.(started)
+      scanStartedAt = started.status?.startedAt ?? null
     } catch (err) {
       // Another scan is already running — attach and poll
       const msg = err instanceof Error ? err.message : String(err)
       if (!msg.toLowerCase().includes('already running')) throw err
       const status = await api.scanStatus()
       onUpdate?.(status)
+      scanStartedAt = status.status?.startedAt ?? null
     }
 
     const deadline = Date.now() + 60 * 60 * 1000
@@ -198,6 +202,16 @@ export const api = {
       if (!status.running && (phase === 'done' || phase === 'error' || !phase)) {
         if (phase === 'error') {
           throw new Error(status.status?.message || 'Scan failed')
+        }
+        // Ignore a stale "done" snapshot from before this scan was kicked off
+        const statusStarted = status.status?.startedAt
+        if (
+          scanStartedAt &&
+          statusStarted &&
+          statusStarted < scanStartedAt &&
+          Date.now() - kickedOffAt < 8000
+        ) {
+          continue
         }
         if (status.lastResult) return status.lastResult
         if (phase === 'done') {
