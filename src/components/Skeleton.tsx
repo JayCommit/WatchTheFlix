@@ -1,12 +1,24 @@
 export function HomeSkeleton() {
   return (
-    <div className="app-shell page-enter" aria-busy="true" aria-label="Loading library">
+    <div className="app-shell page-enter has-mobile-nav" aria-busy="true" aria-label="Loading library">
       <div className="topbar">
-        <div className="brand">
-          Watch<span>The</span>Flix
+        <div className="topbar-inner">
+          <div className="topbar-brand-block">
+            <div className="brand">
+              Watch<span>The</span>Flix
+            </div>
+          </div>
+          <div className="topbar-nav hide-sm" aria-hidden>
+            <span className="skel skel-nav" />
+            <span className="skel skel-nav" />
+            <span className="skel skel-nav" />
+            <span className="skel skel-nav" />
+          </div>
+          <div className="skel skel-search" />
+          <div className="topbar-actions">
+            <div className="skel skel-avatar" />
+          </div>
         </div>
-        <div className="skel skel-search" />
-        <div className="skel skel-btn" />
       </div>
       <div className="skel-hero" />
       <div className="section">
@@ -31,10 +43,23 @@ export function HomeSkeleton() {
 
 export function DetailSkeleton() {
   return (
-    <div className="app-shell page-enter" aria-busy="true" aria-label="Loading title">
+    <div className="app-shell page-enter has-mobile-nav" aria-busy="true" aria-label="Loading title">
       <div className="topbar">
-        <div className="brand">
-          Watch<span>The</span>Flix
+        <div className="topbar-inner">
+          <div className="topbar-brand-block">
+            <div className="brand">
+              Watch<span>The</span>Flix
+            </div>
+          </div>
+          <div className="topbar-nav hide-sm" aria-hidden>
+            <span className="skel skel-nav" />
+            <span className="skel skel-nav" />
+            <span className="skel skel-nav" />
+          </div>
+          <div className="topbar-spacer" />
+          <div className="topbar-actions">
+            <div className="skel skel-avatar" />
+          </div>
         </div>
       </div>
       <div className="skel-detail">

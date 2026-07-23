@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
+import { AccountMenu } from '../components/AccountMenu'
+import { MobileNav } from '../components/MobileNav'
 import { DetailSkeleton } from '../components/Skeleton'
 import { TopBar } from '../components/TopBar'
 import type { AuthUser, MediaFile, TitleDetail } from '../types'
@@ -9,6 +11,7 @@ import { episodeLabel, formatBytes, formatTime, isLikelyUnsupported, sortMediaFi
 type Props = {
   kind: 'movie' | 'tv'
   user: AuthUser
+  onLogout: () => void
 }
 
 type SeasonFilter = number | 'all' | 'unknown'
@@ -22,7 +25,7 @@ function hasResume(file: MediaFile | undefined): boolean {
   return !!file?.progress && file.progress.position > 30
 }
 
-export function DetailPage({ kind, user }: Props) {
+export function DetailPage({ kind, user, onLogout }: Props) {
   const { id } = useParams()
   const navigate = useNavigate()
   const isAdmin = user.role === 'admin'
@@ -30,6 +33,7 @@ export function DetailPage({ kind, user }: Props) {
   const [error, setError] = useState('')
   const [season, setSeason] = useState<SeasonFilter>('all')
   const [onWatchlist, setOnWatchlist] = useState(false)
+  const [watchlistBusy, setWatchlistBusy] = useState(false)
   const [flash, setFlash] = useState('')
   const [preferring, setPreferring] = useState<string | null>(null)
   const [trailers, setTrailers] = useState<Array<{ name: string; url: string }>>([])
@@ -161,30 +165,37 @@ export function DetailPage({ kind, user }: Props) {
     return () => window.removeEventListener('keydown', onKey)
   }, [detail, primaryFile, navigate])
 
+  async function toggleWatchlist() {
+    if (!detail || watchlistBusy) return
+    const next = !onWatchlist
+    setWatchlistBusy(true)
+    setOnWatchlist(next)
+    try {
+      if (next) await api.addWatchlist(detail.id)
+      else await api.removeWatchlist(detail.id)
+      setFlash(next ? 'Added to My List' : 'Removed from My List')
+      window.setTimeout(() => setFlash(''), 2200)
+    } catch (err) {
+      setOnWatchlist(!next)
+      setFlash(err instanceof Error ? err.message : 'Could not update My List')
+      window.setTimeout(() => setFlash(''), 3200)
+    } finally {
+      setWatchlistBusy(false)
+    }
+  }
+
   if (error) {
     return (
-      <div className="app-shell page-enter">
-        <TopBar
-          actions={
-            <>
-              {isAdmin ? (
-                <Link className="topbar-link" to="/admin">
-                  Manage
-                </Link>
-              ) : null}
-              <Link className="btn btn-ghost" to="/">
-                Library
-              </Link>
-            </>
-          }
-        />
+      <div className="app-shell page-enter has-mobile-nav">
+        <TopBar actions={<AccountMenu user={user} onLogout={onLogout} />} />
         <div className="empty-state">
           <h2>Not found</h2>
           <p>{error}</p>
-          <Link className="btn btn-ghost" to="/">
+          <button className="btn btn-ghost" type="button" onClick={() => navigate('/')}>
             Back home
-          </Link>
+          </button>
         </div>
+        <MobileNav />
       </div>
     )
   }
@@ -199,19 +210,12 @@ export function DetailPage({ kind, user }: Props) {
   }
 
   return (
-    <div className="app-shell detail-page page-enter">
+    <div className="app-shell detail-page page-enter has-mobile-nav">
       <TopBar
         actions={
           <>
             {flash ? <span className="muted scan-status hide-sm">{flash}</span> : null}
-            {isAdmin ? (
-              <Link className="topbar-link" to="/admin">
-                Manage
-              </Link>
-            ) : null}
-            <Link className="btn btn-ghost" to="/">
-              Library
-            </Link>
+            <AccountMenu user={user} onLogout={onLogout} />
           </>
         }
       />
@@ -225,7 +229,7 @@ export function DetailPage({ kind, user }: Props) {
               : detail.poster
                 ? `url(${detail.poster})`
                 : undefined,
-            backgroundColor: '#1a1510',
+            backgroundColor: '#0c0e18',
           }}
         />
         <div className="detail-body">
@@ -237,24 +241,34 @@ export function DetailPage({ kind, user }: Props) {
             )}
           </div>
           <div className="detail-copy">
-            <p className="hero-brand">WatchTheFlix</p>
+            <p className="hero-kicker">
+              {[
+                kind === 'movie' ? 'Movie' : 'Series',
+                detail.year ? String(detail.year) : null,
+                detail.voteAverage ? `${detail.voteAverage.toFixed(1)} ★` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
             <h1>{detail.title}</h1>
             <div className="hero-meta">
-              {detail.year ? <span>{detail.year}</span> : null}
-              {detail.voteAverage ? <span>★ {detail.voteAverage.toFixed(1)}</span> : null}
-              <span className="hero-kind">{kind === 'movie' ? 'Movie' : 'Series'}</span>
               {detail.genres.slice(0, 5).map((g) => (
-                <span key={g}>{g}</span>
+                <span key={g} className="genre-pill">
+                  {g}
+                </span>
               ))}
             </div>
             {detail.overview ? <p className="detail-overview">{detail.overview}</p> : null}
             <div className="hero-actions">
               <button
-                className="btn btn-primary"
+                className="btn btn-primary btn-play"
                 type="button"
                 disabled={!primaryFile}
                 onClick={playPrimary}
               >
+                <span className="btn-icon" aria-hidden>
+                  ▶
+                </span>
                 {hasResume(primaryFile ?? undefined)
                   ? `Resume · ${formatTime(primaryFile!.progress!.position)}`
                   : kind === 'movie'
@@ -271,21 +285,12 @@ export function DetailPage({ kind, user }: Props) {
                 </button>
               ) : null}
               <button
-                className="btn btn-ghost"
+                className={`btn btn-ghost${onWatchlist ? ' is-listed' : ''}`}
                 type="button"
-                onClick={() => {
-                  void (async () => {
-                    if (onWatchlist) {
-                      await api.removeWatchlist(detail.id)
-                      setOnWatchlist(false)
-                    } else {
-                      await api.addWatchlist(detail.id)
-                      setOnWatchlist(true)
-                    }
-                  })()
-                }}
+                disabled={watchlistBusy}
+                onClick={() => void toggleWatchlist()}
               >
-                {onWatchlist ? 'On watchlist' : 'Add to watchlist'}
+                {watchlistBusy ? 'Saving…' : onWatchlist ? '✓ My List' : '+ My List'}
               </button>
               {trailers[0] ? (
                 <a className="btn btn-ghost" href={trailers[0].url} target="_blank" rel="noreferrer">
@@ -294,7 +299,7 @@ export function DetailPage({ kind, user }: Props) {
               ) : null}
               {!primaryFile ? <span className="muted">No playable files yet</span> : null}
             </div>
-            <p className="kbd-hint muted">Press Enter or P to play</p>
+            <p className="kbd-hint muted hide-sm">Press Enter or P to play</p>
           </div>
         </div>
       </section>
@@ -498,6 +503,7 @@ export function DetailPage({ kind, user }: Props) {
           </div>
         </section>
       )}
+      <MobileNav />
     </div>
   )
 }

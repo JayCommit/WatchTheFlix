@@ -18,6 +18,8 @@ export type Title = {
   backdrop: string | null
   voteAverage: number | null
   genres: string[]
+  /** Present on watchlist items */
+  addedAt?: string
 }
 
 export type Progress = {

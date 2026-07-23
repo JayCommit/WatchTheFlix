@@ -575,6 +575,17 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
                       Cancel
                     </button>
                   )}
+                  {job.status === 'failed' ? (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      type="button"
+                      disabled={enqueueing || !localMediaEnabled}
+                      title={!localMediaEnabled ? 'Set LOCAL_MEDIA_ROOT first' : 'Retry convert'}
+                      onClick={() => void enqueueOne(job.path)}
+                    >
+                      Retry
+                    </button>
+                  ) : null}
                 </li>
               )
             })}

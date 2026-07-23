@@ -41,6 +41,16 @@ function profileIdFrom(c: Context<{ Variables: AuthVariables }>): number {
   return userFallback
 }
 
+function parseGenres(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? (parsed as string[]) : []
+  } catch {
+    return []
+  }
+}
+
 export function registerFeatureRoutes(app: Hono<Vars>): void {
   app.get('/api/stream/tracks', async (c) => {
     const denied = requireAuth(c)
@@ -98,7 +108,8 @@ export function registerFeatureRoutes(app: Hono<Vars>): void {
     const denied = requireAuth(c)
     if (denied) return denied
     const user = c.get('user')!
-    return c.json({ profiles: listProfilesForUser(user.id), activeId: profileIdFrom(c) })
+    const profiles = listProfilesForUser(user.id).map((p) => ({ id: p.id, name: p.name }))
+    return c.json({ profiles, activeId: profileIdFrom(c) })
   })
 
   app.post('/api/profiles', async (c) => {
@@ -107,8 +118,8 @@ export function registerFeatureRoutes(app: Hono<Vars>): void {
     const user = c.get('user')!
     const body = await c.req.json<{ name?: string }>().catch(() => null)
     try {
-      const profile = createProfile(body?.name || 'Viewer', user.id)
-      return c.json({ profile })
+      const created = createProfile(body?.name || 'Viewer', user.id)
+      return c.json({ profile: { id: created.id, name: created.name } })
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'Create failed' }, 400)
     }
@@ -150,7 +161,7 @@ export function registerFeatureRoutes(app: Hono<Vars>): void {
       poster: posterUrl(t.poster_path),
       backdrop: backdropUrl(t.backdrop_path),
       voteAverage: t.vote_average,
-      genres: [],
+      genres: parseGenres(t.genres),
       addedAt: t.added_at,
     }))
     return c.json({ items })

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api, type ScanStatusResponse } from '../api'
 import { ConvertSection } from '../components/ConvertSection'
 import { TopBar } from '../components/TopBar'
@@ -23,7 +23,28 @@ type Section =
   | 'convert'
   | 'users'
   | 'tools'
+
+const SECTIONS: Section[] = [
+  'overview',
+  'now',
+  'library',
+  'unmatched',
+  'activity',
+  'convert',
+  'users',
+  'tools',
+]
+
+function isSection(value: string | null): value is Section {
+  return !!value && (SECTIONS as string[]).includes(value)
+}
+
 type Diagnostics = Awaited<ReturnType<typeof api.diagnostics>>
+type DrawerHealth = {
+  missing: Array<{ season: number; episode: number; name: string }>
+  present: number
+  expected: number
+}
 
 type Props = {
   user: AuthUser
@@ -54,7 +75,23 @@ function SkeletonRows({ rows = 5 }: { rows?: number }) {
 }
 
 export function AdminPage({ user, onLogout }: Props) {
-  const [section, setSection] = useState<Section>('overview')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const section: Section = isSection(searchParams.get('section'))
+    ? (searchParams.get('section') as Section)
+    : 'overview'
+
+  function setSection(next: Section) {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev)
+        if (next === 'overview') params.delete('section')
+        else params.set('section', next)
+        return params
+      },
+      { replace: true },
+    )
+  }
+
   const [titles, setTitles] = useState<AdminTitle[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -79,6 +116,9 @@ export function AdminPage({ user, onLogout }: Props) {
 
   const [drawer, setDrawer] = useState<AdminTitle | null>(null)
   const [drawerLoading, setDrawerLoading] = useState(false)
+  const [drawerHealth, setDrawerHealth] = useState<DrawerHealth | null>(null)
+  const [mergeTargetId, setMergeTargetId] = useState('')
+  const [reassignTargets, setReassignTargets] = useState<Record<string, string>>({})
   const drawerReqRef = useRef(0)
 
   const [overview, setOverview] = useState<AdminOverview | null>(null)
@@ -188,6 +228,14 @@ export function AdminPage({ user, onLogout }: Props) {
   }, [section, includeStale])
 
   useEffect(() => {
+    if (section !== 'activity') return
+    void loadActivity()
+    const t = window.setInterval(() => void loadActivity(), 20_000)
+    return () => window.clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section])
+
+  useEffect(() => {
     if (section !== 'library' && section !== 'unmatched') return
     const t = window.setTimeout(() => void loadTitles(), 180)
     return () => window.clearTimeout(t)
@@ -245,7 +293,16 @@ export function AdminPage({ user, onLogout }: Props) {
     setRematchSearching(true)
     setRematchError('')
     try {
-      const res = await api.tmdbSearch(rematchQuery.trim(), rematchKind)
+      let year: number | null | undefined
+      if (editId != null && editId === rematchId && editYear.trim()) {
+        const n = Number(editYear)
+        if (Number.isFinite(n)) year = n
+      } else if (rematchId != null) {
+        const fromList = titles.find((t) => t.id === rematchId)
+        const fromDrawer = drawer?.id === rematchId ? drawer : null
+        year = fromList?.year ?? fromDrawer?.year ?? null
+      }
+      const res = await api.tmdbSearch(rematchQuery.trim(), rematchKind, year)
       setRematchResults(res.results)
       if (res.results.length === 0) setRematchError('No TMDB results')
     } catch (err) {
@@ -266,9 +323,16 @@ export function AdminPage({ user, onLogout }: Props) {
         kind: rematchKind,
       })
       setRematchId(null)
-      notify(`Matched to TMDB ${result.tmdbId} — ${result.title}`)
+      if (result.mergedIntoId != null) {
+        notify(`Matched to TMDB ${result.tmdbId} — ${result.title} (merged into #${result.mergedIntoId})`)
+      } else {
+        notify(`Matched to TMDB ${result.tmdbId} — ${result.title}`)
+      }
       await loadTitles()
-      if (drawer?.id === rematchId || drawer?.id === result.id) await openDrawer(result.id)
+      const openId = result.mergedIntoId ?? result.id
+      if (drawer?.id === rematchId || drawer?.id === result.id || drawer?.id === openId) {
+        await openDrawer(openId)
+      }
     } catch (err) {
       setRematchError(err instanceof Error ? err.message : 'Rematch failed')
     } finally {
@@ -297,15 +361,74 @@ export function AdminPage({ user, onLogout }: Props) {
   async function openDrawer(id: number) {
     const req = ++drawerReqRef.current
     setDrawerLoading(true)
+    setDrawerHealth(null)
+    setMergeTargetId('')
+    setReassignTargets({})
     try {
       const detail = await api.adminTitle(id)
       if (req !== drawerReqRef.current) return
       setDrawer(detail)
+      if (detail.kind === 'tv' && !detail.unmatched) {
+        try {
+          const health = await api.titleHealth(id)
+          if (req !== drawerReqRef.current) return
+          setDrawerHealth(health)
+        } catch {
+          if (req !== drawerReqRef.current) return
+          setDrawerHealth(null)
+        }
+      }
     } catch (err) {
       if (req !== drawerReqRef.current) return
       notify(err instanceof Error ? err.message : 'Could not load title')
     } finally {
       if (req === drawerReqRef.current) setDrawerLoading(false)
+    }
+  }
+
+  async function mergeDrawerIntoTarget() {
+    if (!drawer) return
+    const targetId = Number(mergeTargetId)
+    if (!Number.isFinite(targetId) || targetId <= 0) {
+      notify('Enter a valid target title id')
+      return
+    }
+    if (targetId === drawer.id) {
+      notify('Cannot merge a title into itself')
+      return
+    }
+    setBusyId(drawer.id)
+    try {
+      const res = await api.mergeTitle(drawer.id, targetId)
+      notify(`Merged · moved ${res.moved} file(s) into #${res.target.id}`)
+      drawerReqRef.current += 1
+      setDrawer(null)
+      setDrawerLoading(false)
+      setDrawerHealth(null)
+      await loadTitles()
+      await openDrawer(res.target.id)
+      if (section === 'overview') void loadOverview()
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Merge failed')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function reassignDrawerFile(path: string) {
+    if (!drawer) return
+    const titleId = Number(reassignTargets[path] ?? '')
+    if (!Number.isFinite(titleId) || titleId <= 0) {
+      notify('Enter a valid title id to reassign')
+      return
+    }
+    try {
+      await api.reassignFile(path, titleId)
+      notify(`Reassigned file to title #${titleId}`)
+      await openDrawer(drawer.id)
+      await loadTitles()
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Reassign failed')
     }
   }
 
@@ -484,25 +607,69 @@ export function AdminPage({ user, onLogout }: Props) {
   }, [])
 
   useEffect(() => {
-    if (!drawer && !drawerLoading) return
     const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName?.toLowerCase()
+      const typing =
+        tag === 'input' ||
+        tag === 'textarea' ||
+        tag === 'select' ||
+        Boolean(target?.isContentEditable)
+
       if (e.key === 'Escape') {
-        drawerReqRef.current += 1
-        setDrawer(null)
-        setDrawerLoading(false)
+        if (editId != null) {
+          setEditId(null)
+          return
+        }
+        if (rematchId != null) {
+          setRematchId(null)
+          setRematchResults([])
+          setRematchError('')
+          return
+        }
+        if (drawer || drawerLoading) {
+          drawerReqRef.current += 1
+          setDrawer(null)
+          setDrawerLoading(false)
+          setDrawerHealth(null)
+        }
+        return
+      }
+
+      if (typing) return
+
+      if (e.key === '/' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) {
+        e.preventDefault()
+        const el = document.getElementById('wtf-admin-search') as HTMLInputElement | null
+        el?.focus()
+        el?.select()
+        return
+      }
+
+      if (e.key >= '1' && e.key <= '8' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const idx = Number(e.key) - 1
+        const next = SECTIONS[idx]
+        if (next) setSection(next)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [drawer, drawerLoading])
+    // setSection is stable enough (closes over setSearchParams)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawer, drawerLoading, editId, rematchId])
 
   return (
     <div className="app-shell admin-shell page-enter">
+      {flash ? (
+        <span className="admin-toast" role="status" aria-live="polite">
+          {flash}
+        </span>
+      ) : null}
       <TopBar
         badge="Admin"
+        hideNav
         actions={
           <>
-            {flash ? <span className="muted scan-status hide-sm">{flash}</span> : null}
             <Link className="topbar-link" to="/">
               Cinema
             </Link>
@@ -569,7 +736,9 @@ export function AdminPage({ user, onLogout }: Props) {
           <OverviewSection
             overview={overview}
             error={overviewError}
+            scanning={scanning}
             onRetry={() => void loadOverview()}
+            onScan={() => void onScan()}
             onGo={(s, opts) => {
               setSection(s)
               if (opts?.kind) {
@@ -591,6 +760,11 @@ export function AdminPage({ user, onLogout }: Props) {
             includeStale={includeStale}
             onIncludeStale={setIncludeStale}
             onRefresh={() => void loadNowPlaying()}
+            onOpenTitle={(id) => {
+              setSection('library')
+              void openDrawer(id)
+            }}
+            onClear={(path) => void clearFileProgress(path)}
           />
         ) : null}
 
@@ -598,6 +772,7 @@ export function AdminPage({ user, onLogout }: Props) {
           <>
             <div className="admin-toolbar">
               <input
+                id="wtf-admin-search"
                 className="admin-input"
                 type="search"
                 placeholder="Search title or TMDB id…"
@@ -764,6 +939,15 @@ export function AdminPage({ user, onLogout }: Props) {
                               >
                                 <strong>{t.title}</strong>
                               </button>
+                              {section === 'unmatched' && t.files?.length ? (
+                                <span className="muted" style={{ fontSize: '0.8rem' }}>
+                                  {t.files
+                                    .slice(0, 3)
+                                    .map((f) => f.filename)
+                                    .join(' · ')}
+                                  {t.files.length > 3 ? ` · +${t.files.length - 3} more` : ''}
+                                </span>
+                              ) : null}
                               <div className="admin-badges">
                                 {t.unmatched ? (
                                   <span className="badge warn">Unmatched</span>
@@ -888,6 +1072,14 @@ export function AdminPage({ user, onLogout }: Props) {
             tab={activityTab}
             onTab={setActivityTab}
             onRefresh={() => void loadActivity()}
+            onOpenTitle={(id) => {
+              setSection('library')
+              void openDrawer(id)
+            }}
+            onClear={(path) => void clearFileProgress(path).then(() => loadActivity())}
+            onMarkWatched={(path, duration) =>
+              void markFileWatched(path, duration).then(() => loadActivity())
+            }
           />
         ) : null}
 
@@ -981,8 +1173,55 @@ export function AdminPage({ user, onLogout }: Props) {
                       </Link>
                     ) : null}
                   </div>
+                  <div className="admin-inline-form" style={{ marginTop: '0.75rem' }}>
+                    <input
+                      className="admin-input admin-input-year"
+                      type="number"
+                      inputMode="numeric"
+                      placeholder="Merge into title id"
+                      value={mergeTargetId}
+                      onChange={(e) => setMergeTargetId(e.target.value)}
+                      aria-label="Merge into title id"
+                    />
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      type="button"
+                      disabled={busyId === drawer.id || !mergeTargetId.trim()}
+                      onClick={() => void mergeDrawerIntoTarget()}
+                    >
+                      Merge
+                    </button>
+                  </div>
                 </div>
               </div>
+
+              {drawer.kind === 'tv' && !drawer.unmatched && drawerHealth ? (
+                <div className="admin-drawer-health">
+                  <h3 className="admin-drawer-sub">
+                    Episode health{' '}
+                    <span className="muted">
+                      {drawerHealth.present}/{drawerHealth.expected}
+                    </span>
+                  </h3>
+                  {drawerHealth.expected === 0 ? (
+                    <p className="muted">No episode list available.</p>
+                  ) : drawerHealth.missing.length === 0 ? (
+                    <p className="muted">All known episodes present.</p>
+                  ) : (
+                    <ul className="missing-list">
+                      {drawerHealth.missing.slice(0, 20).map((m) => (
+                        <li key={`${m.season}x${m.episode}`}>
+                          S{String(m.season).padStart(2, '0')}E
+                          {String(m.episode).padStart(2, '0')} · {m.name}
+                        </li>
+                      ))}
+                      {drawerHealth.missing.length > 20 ? (
+                        <li className="muted">…and {drawerHealth.missing.length - 20} more</li>
+                      ) : null}
+                    </ul>
+                  )}
+                </div>
+              ) : null}
 
               {rematchId === drawer.id ? (
                 <RematchPanel
@@ -1163,6 +1402,30 @@ export function AdminPage({ user, onLogout }: Props) {
                             Clear
                           </button>
                         </div>
+                        <div className="admin-inline-form" style={{ marginTop: '0.45rem' }}>
+                          <input
+                            className="admin-input admin-input-year"
+                            type="number"
+                            inputMode="numeric"
+                            placeholder="Title id"
+                            value={reassignTargets[f.path] ?? ''}
+                            onChange={(e) =>
+                              setReassignTargets((prev) => ({
+                                ...prev,
+                                [f.path]: e.target.value,
+                              }))
+                            }
+                            aria-label={`Reassign ${f.filename} to title id`}
+                          />
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            type="button"
+                            disabled={!reassignTargets[f.path]?.trim()}
+                            onClick={() => void reassignDrawerFile(f.path)}
+                          >
+                            Reassign
+                          </button>
+                        </div>
                       </li>
                     )
                   })}
@@ -1267,7 +1530,9 @@ function RematchPanel(props: {
 function OverviewSection(props: {
   overview: AdminOverview | null
   error: string
+  scanning: boolean
   onRetry: () => void
+  onScan: () => void
   onGo: (s: Section, opts?: { kind?: 'movie' | 'tv' }) => void
   onOpenTitle: (id: number) => void
 }) {
@@ -1288,6 +1553,19 @@ function OverviewSection(props: {
   const s = overview.stats
   return (
     <div className="admin-overview">
+      <div className="admin-section-row" style={{ marginBottom: '1rem' }}>
+        <p className="muted" style={{ margin: 0 }}>
+          Last scan {relativeAge(overview.lastScan)}
+        </p>
+        <button
+          className="btn btn-primary btn-sm"
+          type="button"
+          disabled={props.scanning}
+          onClick={props.onScan}
+        >
+          {props.scanning ? 'Scanning…' : 'Scan library'}
+        </button>
+      </div>
       <div className="admin-stat-grid">
         <StatCard
           label="Movies"
@@ -1342,7 +1620,11 @@ function OverviewSection(props: {
         ) : (
           <ul className="admin-np-list compact">
             {overview.nowPlaying.map((sess) => (
-              <NowPlayingRow key={sess.clientId} session={sess} />
+              <NowPlayingRow
+                key={sess.clientId}
+                session={sess}
+                onOpenTitle={props.onOpenTitle}
+              />
             ))}
           </ul>
         )}
@@ -1411,6 +1693,8 @@ function NowPlayingSection(props: {
   includeStale: boolean
   onIncludeStale: (v: boolean) => void
   onRefresh: () => void
+  onOpenTitle?: (id: number) => void
+  onClear?: (path: string) => void
 }) {
   return (
     <div className="admin-now">
@@ -1439,7 +1723,13 @@ function NowPlayingSection(props: {
       ) : (
         <ul className="admin-np-list">
           {props.sessions.map((s) => (
-            <NowPlayingRow key={s.clientId} session={s} detailed />
+            <NowPlayingRow
+              key={s.clientId}
+              session={s}
+              detailed
+              onOpenTitle={props.onOpenTitle}
+              onClear={props.onClear}
+            />
           ))}
         </ul>
       )}
@@ -1447,11 +1737,21 @@ function NowPlayingSection(props: {
   )
 }
 
-function NowPlayingRow(props: { session: NowPlayingSession; detailed?: boolean }) {
+function NowPlayingRow(props: {
+  session: NowPlayingSession
+  detailed?: boolean
+  onOpenTitle?: (id: number) => void
+  onPlay?: (path: string, titleId: number) => void
+  onClear?: (path: string) => void
+}) {
   const s = props.session
   const ep =
     s.kind === 'tv' && s.season != null && s.episode != null
       ? episodeLabel(s.season, s.episode)
+      : null
+  const playHref =
+    s.path && s.titleId != null
+      ? `/play?path=${encodeURIComponent(s.path)}&titleId=${s.titleId}${s.kind ? `&kind=${s.kind}` : ''}`
       : null
   return (
     <li className={`admin-np-row status-${s.status}`}>
@@ -1482,6 +1782,37 @@ function NowPlayingRow(props: { session: NowPlayingSession; detailed?: boolean }
             {s.userAgent ? ` · ${s.userAgent.slice(0, 64)}` : ''}
           </div>
         ) : null}
+        <div className="admin-actions" style={{ marginTop: '0.45rem' }}>
+          {s.titleId != null && props.onOpenTitle ? (
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={() => props.onOpenTitle?.(s.titleId!)}
+            >
+              Open
+            </button>
+          ) : null}
+          {props.detailed && playHref ? (
+            <Link
+              className="btn btn-ghost btn-sm"
+              to={playHref}
+              onClick={() => {
+                if (s.path && s.titleId != null) props.onPlay?.(s.path, s.titleId)
+              }}
+            >
+              Play
+            </Link>
+          ) : null}
+          {props.detailed && s.path && props.onClear ? (
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={() => props.onClear?.(s.path)}
+            >
+              Clear progress
+            </button>
+          ) : null}
+        </div>
       </div>
     </li>
   )
@@ -1493,6 +1824,9 @@ function ActivitySection(props: {
   tab: 'events' | 'progress'
   onTab: (t: 'events' | 'progress') => void
   onRefresh: () => void
+  onOpenTitle?: (id: number) => void
+  onClear?: (path: string) => void
+  onMarkWatched?: (path: string, duration?: number) => void
 }) {
   return (
     <div className="admin-activity">
@@ -1527,6 +1861,7 @@ function ActivitySection(props: {
             {props.progress.map((p) => {
               const pct =
                 p.duration > 0 ? Math.round((p.position / p.duration) * 100) : 0
+              const playHref = `/play?path=${encodeURIComponent(p.path)}&titleId=${p.titleId}&kind=${p.kind}`
               return (
                 <li key={`${p.path}-${p.updatedAt}`}>
                   <div className="admin-thumb sm">
@@ -1545,6 +1880,38 @@ function ActivitySection(props: {
                       {' · '}
                       {relativeAge(p.updatedAt)}
                     </span>
+                    <div className="admin-actions" style={{ marginTop: '0.4rem' }}>
+                      {props.onOpenTitle ? (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          type="button"
+                          onClick={() => props.onOpenTitle?.(p.titleId)}
+                        >
+                          Open
+                        </button>
+                      ) : null}
+                      <Link className="btn btn-ghost btn-sm" to={playHref}>
+                        Play
+                      </Link>
+                      {props.onClear ? (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          type="button"
+                          onClick={() => props.onClear?.(p.path)}
+                        >
+                          Clear
+                        </button>
+                      ) : null}
+                      {props.onMarkWatched ? (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          type="button"
+                          onClick={() => props.onMarkWatched?.(p.path, p.duration)}
+                        >
+                          Mark watched
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </li>
               )
@@ -1627,20 +1994,45 @@ function ToolsSection(props: {
             Refresh diagnostics
           </button>
         </div>
-        {props.scanning && progress ? (
-          <ul className="diag-list" style={{ marginTop: '1rem' }}>
-            <li>
-              Source: <code>{progress.source}</code> · phase: <code>{progress.phase}</code>
-            </li>
-            <li>
-              Dirs scanned: {progress.dirsScanned} · files found: {progress.filesFound} ·
-              processed: {progress.processed}
-            </li>
-            <li>
-              Matched: {progress.matched} · unmatched: {progress.unmatched}
-            </li>
-            {progress.message ? <li className="muted">{progress.message}</li> : null}
-          </ul>
+        {props.scanning ? (
+          (() => {
+            const listing = !progress || progress.phase === 'listing' || !progress.filesFound
+            const pct =
+              !listing && progress.filesFound > 0
+                ? Math.min(100, Math.round((progress.processed / progress.filesFound) * 100))
+                : 0
+            return (
+              <div style={{ marginTop: '1rem' }}>
+                <div
+                  className={`admin-progress-bar${listing ? ' indeterminate' : ''}`}
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={listing ? undefined : pct}
+                  aria-label="Library scan progress"
+                >
+                  <i style={{ width: `${listing ? 100 : pct}%` }} />
+                </div>
+                {progress ? (
+                  <ul className="diag-list" style={{ marginTop: '0.75rem' }}>
+                    <li>
+                      Source: <code>{progress.source}</code> · phase:{' '}
+                      <code>{progress.phase}</code>
+                      {!listing ? ` · ${pct}%` : ''}
+                    </li>
+                    <li>
+                      Dirs scanned: {progress.dirsScanned} · files found: {progress.filesFound} ·
+                      processed: {progress.processed}
+                    </li>
+                    <li>
+                      Matched: {progress.matched} · unmatched: {progress.unmatched}
+                    </li>
+                    {progress.message ? <li className="muted">{progress.message}</li> : null}
+                  </ul>
+                ) : null}
+              </div>
+            )
+          })()
         ) : null}
         {props.scanMsg ? (
           <p
@@ -1945,6 +2337,28 @@ function UsersSection(props: { currentUser: AuthUser; notify: (msg: string) => v
                     <td>{u.disabled ? <span className="error-text">Disabled</span> : 'Active'}</td>
                     <td>
                       <div className="admin-actions">
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          type="button"
+                          onClick={() => {
+                            const next = window.prompt(`New password for ${u.username} (min 8 chars)`)
+                            if (next == null) return
+                            if (next.trim().length < 8) {
+                              props.notify('Password must be at least 8 characters')
+                              return
+                            }
+                            void api
+                              .adminPatchUser(u.id, { password: next.trim() })
+                              .then(() => props.notify(`Password reset for ${u.username}`))
+                              .catch((err) =>
+                                props.notify(
+                                  err instanceof Error ? err.message : 'Password reset failed',
+                                ),
+                              )
+                          }}
+                        >
+                          Reset password
+                        </button>
                         <button
                           className="btn btn-ghost btn-sm"
                           type="button"
