@@ -1,31 +1,61 @@
-type Mode = 'auto' | 'remux' | 'transcode'
+import type { ConvertQueueMode } from '../../types'
 
 type Props = {
-  mode: Mode
+  mode: ConvertQueueMode
   replaceOriginal: boolean
   deleteOriginal: boolean
-  onModeChange: (mode: Mode) => void
+  dirty: boolean
+  saving: boolean
+  saved: boolean
+  onModeChange: (mode: ConvertQueueMode) => void
   onReplaceOriginalChange: (value: boolean) => void
   onDeleteOriginalChange: (value: boolean) => void
+  onSave: () => void
+  onReset: () => void
 }
 
 export function ConvertOptions({
   mode,
   replaceOriginal,
   deleteOriginal,
+  dirty,
+  saving,
+  saved,
   onModeChange,
   onReplaceOriginalChange,
   onDeleteOriginalChange,
+  onSave,
+  onReset,
 }: Props) {
   return (
     <section className="admin-card">
       <div className="section-head">
         <h2>Queue options</h2>
+        <div className="admin-convert-opts-actions">
+          {dirty ? (
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              disabled={saving}
+              onClick={onReset}
+            >
+              Reset
+            </button>
+          ) : null}
+          <button
+            className="btn btn-primary btn-sm"
+            type="button"
+            disabled={!dirty || saving}
+            onClick={onSave}
+          >
+            {saving ? 'Saving…' : saved && !dirty ? 'Saved' : 'Save defaults'}
+          </button>
+        </div>
       </div>
       <div className="admin-convert-opts">
         <label className="admin-convert-field">
           Mode
-          <select value={mode} onChange={(e) => onModeChange(e.target.value as Mode)}>
+          <select value={mode} onChange={(e) => onModeChange(e.target.value as ConvertQueueMode)}>
             <option value="auto">Auto — remux H.264, transcode the rest</option>
             <option value="remux">Remux only (fail if re-encode needed)</option>
             <option value="transcode">Force transcode (re-encode everything)</option>
@@ -61,8 +91,9 @@ export function ConvertOptions({
         </div>
       </div>
       <p className="muted">
-        Flow: convert to temp → ffprobe verify → swap into place → optional purge of quarantined
-        original. Never deletes without a successful verify.
+        Saved defaults apply to this queue and the Convert button in the library drawer. Flow:
+        convert to temp → ffprobe verify → swap into place → optional purge of quarantined original.
+        Never deletes without a successful verify.
       </p>
     </section>
   )

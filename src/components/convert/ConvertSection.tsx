@@ -1,33 +1,71 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api'
 import { AdminSkeleton } from '../admin/AdminSkeleton'
-import type { CodecProbeCoverage, CodecProbeStatus, ConvertJob, ConvertNeedsFile } from '../../types'
+import type {
+  CodecProbeCoverage,
+  CodecProbeStatus,
+  ConvertJob,
+  ConvertNeedsFile,
+  ConvertQueueMode,
+  ConvertQueueOptions,
+} from '../../types'
 import { ConvertJobsList } from './ConvertJobsList'
 import { ConvertNeedsTable } from './ConvertNeedsTable'
 import { ConvertOptions } from './ConvertOptions'
 import { ConvertProbePanel } from './ConvertProbePanel'
 import { jobSortKey, plannedAction } from './utils'
 
+const FALLBACK_OPTIONS: ConvertQueueOptions = {
+  mode: 'auto',
+  replaceOriginal: true,
+  deleteOriginal: false,
+}
+
+function normalizeLocalOptions(opts: ConvertQueueOptions): ConvertQueueOptions {
+  return {
+    mode: opts.mode,
+    replaceOriginal: opts.replaceOriginal,
+    deleteOriginal: opts.replaceOriginal ? opts.deleteOriginal : false,
+  }
+}
+
+function optionsEqual(a: ConvertQueueOptions, b: ConvertQueueOptions): boolean {
+  return (
+    a.mode === b.mode &&
+    a.replaceOriginal === b.replaceOriginal &&
+    a.deleteOriginal === b.deleteOriginal
+  )
+}
+
 export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
   const [jobs, setJobs] = useState<ConvertJob[]>([])
   const [needs, setNeeds] = useState<ConvertNeedsFile[]>([])
   const [stats, setStats] = useState({ queued: 0, running: 0, done: 0, failed: 0 })
   const [localMediaEnabled, setLocalMediaEnabled] = useState(false)
-  const [deleteDefault, setDeleteDefault] = useState(false)
   const [loading, setLoading] = useState(true)
   const [probing, setProbing] = useState(false)
   const [probeStatus, setProbeStatus] = useState<CodecProbeStatus | null>(null)
   const [coverage, setCoverage] = useState<CodecProbeCoverage | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [replaceOriginal, setReplaceOriginal] = useState(true)
-  const [deleteOriginal, setDeleteOriginal] = useState(false)
-  const [mode, setMode] = useState<'auto' | 'remux' | 'transcode'>('auto')
+  const [savedOptions, setSavedOptions] = useState<ConvertQueueOptions>(FALLBACK_OPTIONS)
+  const [draftOptions, setDraftOptions] = useState<ConvertQueueOptions>(FALLBACK_OPTIONS)
+  const [optionsReady, setOptionsReady] = useState(false)
+  const [savingOptions, setSavingOptions] = useState(false)
+  const [optionsJustSaved, setOptionsJustSaved] = useState(false)
   const [enqueueing, setEnqueueing] = useState(false)
   const prevJobStatus = useRef<Map<number, string>>(new Map())
   const jobStatusReady = useRef(false)
+  const draftRef = useRef(draftOptions)
+  const savedRef = useRef(savedOptions)
+  const optionsReadyRef = useRef(optionsReady)
+
+  draftRef.current = draftOptions
+  savedRef.current = savedOptions
+  optionsReadyRef.current = optionsReady
 
   const jobsActive = stats.running > 0 || stats.queued > 0
   const pollMs = probing || jobsActive ? 900 : 4000
+  const dirty = optionsReady && !optionsEqual(draftOptions, savedOptions)
 
   const refresh = useCallback(async () => {
     try {
@@ -64,7 +102,15 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
       setJobs(j.jobs)
       setStats(j.stats)
       setLocalMediaEnabled(j.localMediaEnabled)
-      setDeleteDefault(j.deleteOriginalDefault)
+      if (j.options) {
+        const next = normalizeLocalOptions(j.options)
+        setSavedOptions(next)
+        // Only overwrite the draft when first loading or when the user hasn't edited.
+        if (!optionsReadyRef.current || optionsEqual(draftRef.current, savedRef.current)) {
+          setDraftOptions(next)
+        }
+        setOptionsReady(true)
+      }
       setNeeds(n.files)
       setProbeStatus(p.status)
       setCoverage(p.coverage)
@@ -81,10 +127,6 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
     const id = window.setInterval(() => void refresh(), pollMs)
     return () => window.clearInterval(id)
   }, [refresh, pollMs])
-
-  useEffect(() => {
-    setDeleteOriginal(deleteDefault)
-  }, [deleteDefault])
 
   const sortedJobs = useMemo(
     () =>
@@ -111,6 +153,43 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
       : probeStatus?.phase === 'done'
         ? 100
         : 0
+
+  function patchDraft(patch: Partial<ConvertQueueOptions>) {
+    setOptionsJustSaved(false)
+    setDraftOptions((prev) =>
+      normalizeLocalOptions({
+        ...prev,
+        ...patch,
+        deleteOriginal:
+          patch.replaceOriginal === false
+            ? false
+            : patch.deleteOriginal !== undefined
+              ? patch.deleteOriginal
+              : prev.deleteOriginal,
+      }),
+    )
+  }
+
+  async function saveOptions() {
+    setSavingOptions(true)
+    try {
+      const res = await api.convertSaveOptions(draftOptions)
+      const next = normalizeLocalOptions(res.options)
+      setSavedOptions(next)
+      setDraftOptions(next)
+      setOptionsJustSaved(true)
+      notify('Queue options saved')
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Could not save queue options')
+    } finally {
+      setSavingOptions(false)
+    }
+  }
+
+  function resetOptions() {
+    setOptionsJustSaved(false)
+    setDraftOptions(savedOptions)
+  }
 
   async function startLibraryProbe(force: boolean) {
     try {
@@ -151,9 +230,9 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
     try {
       const res = await api.convertEnqueue({
         paths,
-        mode,
-        replaceOriginal,
-        deleteOriginal,
+        mode: draftOptions.mode,
+        replaceOriginal: draftOptions.replaceOriginal,
+        deleteOriginal: draftOptions.deleteOriginal,
       })
       const modes = res.jobs
         .map((j) => j.job?.mode)
@@ -178,7 +257,12 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
   async function enqueueOne(path: string) {
     setEnqueueing(true)
     try {
-      const res = await api.convertEnqueue({ path, mode, replaceOriginal, deleteOriginal })
+      const res = await api.convertEnqueue({
+        path,
+        mode: draftOptions.mode,
+        replaceOriginal: draftOptions.replaceOriginal,
+        deleteOriginal: draftOptions.deleteOriginal,
+      })
       if (res.enqueued) {
         const resolved = res.jobs[0]?.job?.mode
         notify(
@@ -275,12 +359,17 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
       </div>
 
       <ConvertOptions
-        mode={mode}
-        replaceOriginal={replaceOriginal}
-        deleteOriginal={deleteOriginal}
-        onModeChange={setMode}
-        onReplaceOriginalChange={setReplaceOriginal}
-        onDeleteOriginalChange={setDeleteOriginal}
+        mode={draftOptions.mode}
+        replaceOriginal={draftOptions.replaceOriginal}
+        deleteOriginal={draftOptions.deleteOriginal}
+        dirty={dirty}
+        saving={savingOptions}
+        saved={optionsJustSaved || (!dirty && optionsReady)}
+        onModeChange={(mode: ConvertQueueMode) => patchDraft({ mode })}
+        onReplaceOriginalChange={(replaceOriginal) => patchDraft({ replaceOriginal })}
+        onDeleteOriginalChange={(deleteOriginal) => patchDraft({ deleteOriginal })}
+        onSave={() => void saveOptions()}
+        onReset={resetOptions}
       />
 
       <ConvertJobsList

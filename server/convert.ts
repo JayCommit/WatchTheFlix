@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { basename } from 'node:path'
 import { existsSync } from 'node:fs'
 import { getConfig } from './config.ts'
+import { getConvertQueueOptions, normalizeConvertQueueOptions } from './convert-options.ts'
 import {
   cancelConvertJob,
   countRunningConvertJobs,
@@ -225,7 +226,7 @@ async function processJob(job: ConvertJobRow): Promise<void> {
     return
   }
 
-  const mode = picked
+  const mode: 'remux' | 'transcode' = picked === 'remux' ? 'remux' : 'transcode'
   updateConvertJob(job.id, {
     mode,
     container: info.container,
@@ -241,93 +242,101 @@ async function processJob(job: ConvertJobRow): Promise<void> {
   const { tempPath, finalLocal } = planConvertOutput(local)
   safeUnlink(tempPath)
 
-  const args = buildConvertFileArgs(
-    local,
-    tempPath,
-    mode,
-    info.audioCodec,
-    0,
-    info.videoStreamIndex,
-    info.audioStreamIndex,
-  )
-  await runFfmpegConvert(job.id, args, info.duration)
+  try {
+    const args = buildConvertFileArgs(
+      local,
+      tempPath,
+      mode,
+      info.audioCodec,
+      0,
+      info.videoStreamIndex,
+      info.audioStreamIndex,
+    )
+    await runFfmpegConvert(job.id, args, info.duration)
 
-  if (cancelRequested.has(job.id)) throw new Error('Cancelled')
+    if (cancelRequested.has(job.id)) throw new Error('Cancelled')
 
-  updateConvertJob(job.id, { progress: 99 })
+    updateConvertJob(job.id, { progress: 99 })
 
-  // Verify output
-  const outProbe = await probeLocalFile(tempPath)
-  if (!outProbe.hasVideo) throw new Error('Converted file has no video stream')
-  if (info.duration && outProbe.duration) {
-    const drift = Math.abs(outProbe.duration - info.duration) / info.duration
-    if (drift > 0.05) {
-      throw new Error(
-        `Duration mismatch after convert (${outProbe.duration.toFixed(1)}s vs ${info.duration.toFixed(1)}s)`,
-      )
-    }
-  }
-
-  let quarantined: string | null = null
-  const replace = Boolean(job.replace_original)
-  const deleteOriginal = Boolean(job.delete_original)
-
-  if (replace) {
-    if (existsSync(local) && local.toLowerCase() !== finalLocal.toLowerCase()) {
-      quarantined = quarantineOriginal(local)
-    }
-    promoteTemp(tempPath, finalLocal, local)
-    if (deleteOriginal && quarantined) {
-      safeUnlink(quarantined)
-      quarantined = null
+    // Verify output
+    const outProbe = await probeLocalFile(tempPath)
+    if (!outProbe.hasVideo) throw new Error('Converted file has no video stream')
+    if (info.duration && outProbe.duration) {
+      const drift = Math.abs(outProbe.duration - info.duration) / info.duration
+      if (drift > 0.05) {
+        throw new Error(
+          `Duration mismatch after convert (${outProbe.duration.toFixed(1)}s vs ${info.duration.toFixed(1)}s)`,
+        )
+      }
     }
 
-    const newLibraryPath = libraryPathFromLocal(finalLocal, job.path)
-    replaceMediaPath(job.path, newLibraryPath, basename(finalLocal), fileSize(finalLocal))
-    clearProbeCache(job.path)
-    clearProbeCache(newLibraryPath)
+    let quarantined: string | null = null
+    const replace = Boolean(job.replace_original)
+    // Delete only applies when we actually replace the library path.
+    const deleteOriginal = replace && Boolean(job.delete_original)
 
-    const newInfo = await getStreamInfo(newLibraryPath)
-    applyProbeToDb(newLibraryPath, newInfo)
+    if (replace) {
+      // Always quarantine the source ourselves so deleteOriginal works even when the
+      // file is already .mp4 (same final path) — promoteTemp used to quarantine silently.
+      if (existsSync(local)) {
+        quarantined = quarantineOriginal(local)
+      }
+      promoteTemp(tempPath, finalLocal, local)
+      if (deleteOriginal && quarantined) {
+        safeUnlink(quarantined)
+        quarantined = null
+      }
 
-    updateConvertJob(job.id, {
-      status: 'done',
-      progress: 100,
-      outputPath: newLibraryPath,
-      quarantinedPath: quarantined,
-      finishedAt: new Date().toISOString(),
-      error: null,
-    })
-  } else {
-    // Keep original; write a sibling browser-friendly MP4 and register it.
-    const out =
-      finalLocal.toLowerCase() === local.toLowerCase()
-        ? local.replace(/\.[^.]+$/, '') + '.browser.mp4'
-        : finalLocal
-    promoteTemp(tempPath, out, local)
-    const newLibraryPath = libraryPathFromLocal(out, job.path)
-    const media = getMediaFileByPath(job.path)
-    if (media) {
-      const { upsertMediaFile } = await import('./db.ts')
-      upsertMediaFile({
-        path: newLibraryPath,
-        filename: basename(out),
-        size: fileSize(out),
-        titleId: media.title_id,
-        season: media.season,
-        episode: media.episode,
-        episodeName: media.episode_name,
-      })
+      const newLibraryPath = libraryPathFromLocal(finalLocal, job.path)
+      replaceMediaPath(job.path, newLibraryPath, basename(finalLocal), fileSize(finalLocal))
+      clearProbeCache(job.path)
+      clearProbeCache(newLibraryPath)
+
       const newInfo = await getStreamInfo(newLibraryPath)
       applyProbeToDb(newLibraryPath, newInfo)
+
+      updateConvertJob(job.id, {
+        status: 'done',
+        progress: 100,
+        outputPath: newLibraryPath,
+        quarantinedPath: quarantined,
+        finishedAt: new Date().toISOString(),
+        error: null,
+      })
+    } else {
+      // Keep original; write a sibling browser-friendly MP4 and register it.
+      const out =
+        finalLocal.toLowerCase() === local.toLowerCase()
+          ? local.replace(/\.[^.]+$/, '') + '.browser.mp4'
+          : finalLocal
+      promoteTemp(tempPath, out, local)
+      const newLibraryPath = libraryPathFromLocal(out, job.path)
+      const media = getMediaFileByPath(job.path)
+      if (media) {
+        const { upsertMediaFile } = await import('./db.ts')
+        upsertMediaFile({
+          path: newLibraryPath,
+          filename: basename(out),
+          size: fileSize(out),
+          titleId: media.title_id,
+          season: media.season,
+          episode: media.episode,
+          episodeName: media.episode_name,
+        })
+        const newInfo = await getStreamInfo(newLibraryPath)
+        applyProbeToDb(newLibraryPath, newInfo)
+      }
+      updateConvertJob(job.id, {
+        status: 'done',
+        progress: 100,
+        outputPath: newLibraryPath,
+        finishedAt: new Date().toISOString(),
+        error: null,
+      })
     }
-    updateConvertJob(job.id, {
-      status: 'done',
-      progress: 100,
-      outputPath: newLibraryPath,
-      finishedAt: new Date().toISOString(),
-      error: null,
-    })
+  } catch (err) {
+    safeUnlink(tempPath)
+    throw err
   }
 }
 
@@ -378,10 +387,36 @@ export async function enqueueConvertForPath(
     mode?: 'auto' | 'remux' | 'transcode'
     replaceOriginal?: boolean
     deleteOriginal?: boolean
+    /** When true, missing fields fall back to saved queue options (default). */
+    useSavedDefaults?: boolean
   },
 ) {
   const media = getMediaFileByPath(path)
   if (!media) throw new Error('Unknown media path — scan the library first')
+
+  const local = resolveLocalPath(path)
+  if (!local || !existsSync(local)) {
+    throw new Error(
+      'File not found on local disk. Set LOCAL_MEDIA_ROOT to your media mount (e.g. /media).',
+    )
+  }
+
+  const saved = getConvertQueueOptions()
+  const queueOpts = normalizeConvertQueueOptions(
+    {
+      mode: opts?.mode,
+      replaceOriginal: opts?.replaceOriginal,
+      deleteOriginal: opts?.deleteOriginal,
+    },
+    opts?.useSavedDefaults === false
+      ? {
+          mode: 'auto',
+          replaceOriginal: true,
+          deleteOriginal: false,
+        }
+      : saved,
+  )
+
   const title = getTitleById(media.title_id)
   clearProbeCache(path)
   const info = await getStreamInfo(path)
@@ -394,11 +429,20 @@ export async function enqueueConvertForPath(
     )
   }
 
-  const requested = opts?.mode ?? 'auto'
+  const requested = queueOpts.mode
   const resolved = pickConvertMode(requested, info)
 
   if (resolved === 'skip') {
     throw new Error('Already browser-compatible (direct play) — nothing to convert')
+  }
+
+  if (requested === 'remux') {
+    const autoPick = pickConvertMode('auto', info)
+    if (autoPick === 'transcode') {
+      throw new Error(
+        `Remux-only: ${info.videoCodec} cannot be stream-copied into MP4 — use Auto or Force transcode`,
+      )
+    }
   }
 
   // Persist the concrete mode (remux/transcode) so the queue never sits on opaque "auto"
@@ -408,14 +452,14 @@ export async function enqueueConvertForPath(
     titleId: media.title_id,
     titleName: title?.title ?? null,
     mode: resolved,
-    replaceOriginal: opts?.replaceOriginal,
-    deleteOriginal: opts?.deleteOriginal ?? getConfig().convertDeleteOriginalDefault,
+    replaceOriginal: queueOpts.replaceOriginal,
+    deleteOriginal: queueOpts.deleteOriginal,
     container: info.container,
     videoCodec: info.videoCodec,
     audioCodec: info.audioCodec,
   })
   void tick()
-  return { job, info, resolvedMode: resolved as 'remux' | 'transcode' }
+  return { job, info, resolvedMode: resolved as 'remux' | 'transcode', options: queueOpts }
 }
 
 export type { PlaybackMode }

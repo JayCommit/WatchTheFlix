@@ -131,6 +131,13 @@
   font-size: 0.86rem;
 }
 
+.admin-convert-opts-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
 
 .convert-select-bar {
   display: flex;
