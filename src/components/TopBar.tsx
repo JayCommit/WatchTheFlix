@@ -22,6 +22,7 @@ export function TopBar({
         Watch<span>The</span>Flix
       </Link>
 
+
       {showSearch && onSearchChange ? (
         <label className="topbar-search">
           <span className="sr-only">Search</span>

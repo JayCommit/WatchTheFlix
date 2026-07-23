@@ -10,6 +10,11 @@ type Props = {
 export function Hero({ title, ctaPath, ctaLabel = 'Play' }: Props) {
   const detailPath = title.kind === 'movie' ? `/movie/${title.id}` : `/tv/${title.id}`
   const playPath = ctaPath ?? detailPath
+  const metaBits = [
+    title.year ? String(title.year) : null,
+    title.voteAverage ? `${title.voteAverage.toFixed(1)} ★` : null,
+    title.kind === 'movie' ? 'Movie' : 'Series',
+  ].filter(Boolean)
 
   return (
     <section className="hero" aria-label={`Featured: ${title.title}`}>
@@ -21,27 +26,19 @@ export function Hero({ title, ctaPath, ctaLabel = 'Play' }: Props) {
             : title.poster
               ? `url(${title.poster})`
               : undefined,
-          backgroundColor: '#1a1510',
+          backgroundColor: '#0c0e18',
         }}
       />
       <div className="hero-copy">
-        <p className="hero-brand">WatchTheFlix</p>
+        <p className="hero-kicker">{metaBits.join(' · ')}</p>
         <h1>{title.title}</h1>
-        <div className="hero-meta">
-          {title.year ? <span>{title.year}</span> : null}
-          {title.voteAverage ? <span>★ {title.voteAverage.toFixed(1)}</span> : null}
-          <span className="hero-kind">{title.kind === 'movie' ? 'Movie' : 'Series'}</span>
-          {title.genres?.slice(0, 3).map((g) => (
-            <span key={g}>{g}</span>
-          ))}
-        </div>
         {title.overview ? <p className="hero-overview">{title.overview}</p> : null}
         <div className="hero-actions">
           <Link className="btn btn-primary" to={playPath}>
             {ctaLabel}
           </Link>
           <Link className="btn btn-ghost" to={detailPath}>
-            More info
+            Details
           </Link>
         </div>
       </div>

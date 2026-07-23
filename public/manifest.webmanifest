@@ -4,8 +4,8 @@
   "description": "Private cinema for your seedbox",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0c0b0a",
-  "theme_color": "#0c0b0a",
+  "background_color": "#05060c",
+  "theme_color": "#05060c",
   "icons": [
     {
       "src": "/favicon.svg",

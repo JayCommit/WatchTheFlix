@@ -56,12 +56,9 @@ export function LoginPage({ onSuccess }: Props) {
           Watch<span>The</span>Flix
         </h1>
         {setupRequired ? (
-          <p>
-            Create the <strong>first admin account</strong>. This user manages the library, converts,
-            and other accounts.
-          </p>
+          <p>Create your admin account to open the private cinema.</p>
         ) : (
-          <p>Sign in to your private cinema.</p>
+          <p>Sign in. Your library is waiting.</p>
         )}
         <form className="login-form" onSubmit={onSubmit}>
           <input
@@ -95,7 +92,7 @@ export function LoginPage({ onSuccess }: Props) {
                 ? setupRequired
                   ? 'Create admin'
                   : 'Create account'
-                : 'Sign in'}
+                : 'Enter'}
           </button>
           {error ? <div className="error-text">{error}</div> : null}
         </form>

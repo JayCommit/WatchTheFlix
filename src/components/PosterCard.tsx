@@ -26,7 +26,7 @@ export function PosterCard({ title, subtitle, progress }: Props) {
       </div>
       <div className="poster-meta">
         <strong>{title.title}</strong>
-        <span>{subtitle ?? (title.year ? String(title.year) : title.kind.toUpperCase())}</span>
+        <span>{subtitle ?? (title.year ? String(title.year) : title.kind === 'tv' ? 'Series' : 'Film')}</span>
       </div>
     </Link>
   )

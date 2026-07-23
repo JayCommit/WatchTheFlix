@@ -30,6 +30,9 @@ export function HomePage({ user, onLogout }: Props) {
   const [query, setQuery] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [watchlist, setWatchlist] = useState<Title[]>([])
+  const [theme, setTheme] = useState(() =>
+    typeof document !== 'undefined' ? document.documentElement.dataset.theme || 'dark' : 'dark',
+  )
 
   async function load() {
     try {
@@ -157,16 +160,17 @@ export function HomePage({ user, onLogout }: Props) {
       <button
         className="btn btn-ghost hide-sm"
         type="button"
-        title="Toggle theme"
+        title="Toggle light / dark"
         onClick={() => {
-          const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'
+          const next = theme === 'light' ? 'dark' : 'light'
           document.documentElement.dataset.theme = next
           localStorage.setItem('wtf_theme', next)
+          setTheme(next)
         }}
       >
-        Theme
+        {theme === 'light' ? 'Dark' : 'Light'}
       </button>
-      <span className="muted hide-sm" style={{ fontSize: '0.85rem' }}>
+      <span className="muted hide-sm user-chip">
         {user.username}
         {isAdmin ? ' · admin' : ''}
       </span>
@@ -261,15 +265,14 @@ export function HomePage({ user, onLogout }: Props) {
 
       <main className="page">
         {empty ? (
-          <div className="empty-state">
-            <p className="hero-brand">WatchTheFlix</p>
-            <h2>Library is empty</h2>
+          <div className="empty-state empty-state-hero">
+            <p className="hero-brand">
+              Watch<span>The</span>Flix
+            </p>
+            <h2>Nothing on the reel yet</h2>
             {isAdmin ? (
               <>
-                <p>
-                  Scan lists video files from local disk (when LOCAL_MEDIA_ROOT is set) or WebDAV,
-                  then matches them on TMDB — large libraries can take several minutes.
-                </p>
+                <p>Scan local disk or WebDAV, match titles on TMDB, and fill the house.</p>
                 <button
                   className="btn btn-primary"
                   type="button"
