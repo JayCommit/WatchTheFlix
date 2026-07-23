@@ -45,7 +45,7 @@ export function PlayerHelp({ kind, streamInfo, onClose }: PlayerHelpProps) {
             </li>
           ) : null}
           <li>
-            <kbd>Esc</kbd> Exit / back
+            <kbd>Esc</kbd> Dismiss overlay / exit
           </li>
           <li>
             <kbd>?</kbd> Toggle this help
