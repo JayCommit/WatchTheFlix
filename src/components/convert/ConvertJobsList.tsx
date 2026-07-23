@@ -14,6 +14,7 @@ type Props = {
   onRetry: (path: string) => void
 }
 
+const FAILED_PREVIEW = 5
 const RECENT_PREVIEW = 8
 
 function isActive(status: string) {
@@ -90,7 +91,10 @@ function JobRow({
         ) : null}
 
         {showError ? (
-          <p className={`convert-job-error${job.status === 'failed' ? ' is-fail' : ''}`} title={job.error || ''}>
+          <p
+            className={`convert-job-error${job.status === 'failed' ? ' is-fail' : ''}`}
+            title={job.error || ''}
+          >
             {job.error}
           </p>
         ) : null}
@@ -144,6 +148,7 @@ export function ConvertJobsList({
   onCancelJob,
   onRetry,
 }: Props) {
+  const [showAllFailed, setShowAllFailed] = useState(false)
   const [showAllRecent, setShowAllRecent] = useState(false)
 
   const { active, recent, failed } = useMemo(() => {
@@ -152,18 +157,21 @@ export function ConvertJobsList({
       if (d !== 0) return d
       return (b.createdAt || '').localeCompare(a.createdAt || '')
     })
-    const activeJobs = sorted.filter((j) => isActive(j.status))
-    const failedJobs = sorted.filter((j) => j.status === 'failed')
-    const recentJobs = sorted.filter((j) => !isActive(j.status) && j.status !== 'failed')
-    return { active: activeJobs, recent: recentJobs, failed: failedJobs }
+    return {
+      active: sorted.filter((j) => isActive(j.status)),
+      failed: sorted.filter((j) => j.status === 'failed'),
+      recent: sorted.filter((j) => !isActive(j.status) && j.status !== 'failed'),
+    }
   }, [jobs])
 
+  const visibleFailed = showAllFailed ? failed : failed.slice(0, FAILED_PREVIEW)
+  const hiddenFailed = Math.max(0, failed.length - visibleFailed.length)
   const visibleRecent = showAllRecent ? recent : recent.slice(0, RECENT_PREVIEW)
   const hiddenRecent = Math.max(0, recent.length - visibleRecent.length)
   const empty = jobs.length === 0
 
   return (
-    <section className="admin-card convert-jobs-card">
+    <section className="admin-card convert-jobs-card" id="convert-jobs">
       <div className="section-head">
         <div className="convert-jobs-heading">
           <h2>Jobs</h2>
@@ -181,13 +189,15 @@ export function ConvertJobsList({
       </div>
 
       {empty ? (
-        <p className="muted">No convert jobs yet. Scan codecs, then queue files below.</p>
+        <p className="muted convert-jobs-empty">
+          Idle — queue files below. Active jobs stay pinned here with contained scrolling.
+        </p>
       ) : (
         <div className="convert-jobs-groups">
           {active.length ? (
             <div className="convert-jobs-group">
               <h3 className="convert-jobs-group-label">Active</h3>
-              <ul className="convert-job-list">
+              <ul className="convert-job-list convert-job-list-scroll">
                 {active.map((job) => (
                   <JobRow
                     key={job.id}
@@ -206,8 +216,8 @@ export function ConvertJobsList({
           {failed.length ? (
             <div className="convert-jobs-group">
               <h3 className="convert-jobs-group-label">Failed</h3>
-              <ul className="convert-job-list">
-                {failed.map((job) => (
+              <ul className="convert-job-list convert-job-list-scroll">
+                {visibleFailed.map((job) => (
                   <JobRow
                     key={job.id}
                     job={job}
@@ -219,13 +229,22 @@ export function ConvertJobsList({
                   />
                 ))}
               </ul>
+              {hiddenFailed > 0 || showAllFailed ? (
+                <button
+                  className="btn btn-ghost btn-sm convert-jobs-more"
+                  type="button"
+                  onClick={() => setShowAllFailed((v) => !v)}
+                >
+                  {showAllFailed ? 'Show less' : `Show ${hiddenFailed} more failed`}
+                </button>
+              ) : null}
             </div>
           ) : null}
 
           {recent.length ? (
             <div className="convert-jobs-group">
               <h3 className="convert-jobs-group-label">Recent</h3>
-              <ul className="convert-job-list">
+              <ul className="convert-job-list convert-job-list-scroll is-compact-list">
                 {visibleRecent.map((job) => (
                   <JobRow
                     key={job.id}

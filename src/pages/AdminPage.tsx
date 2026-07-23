@@ -351,7 +351,7 @@ export function AdminPage({ user, onLogout }: Props) {
                         : section === 'activity'
                           ? 'Recent library events and playback progress.'
                           : section === 'convert'
-                            ? 'Probe codecs and permanently remux or transcode files.'
+                            ? 'Scan codecs, queue remux/transcode jobs, and work through incompatible files without drowning the page.'
                             : section === 'users'
                               ? 'Accounts, roles, and access.'
                               : 'Scan, diagnostics, and maintenance tools.'}

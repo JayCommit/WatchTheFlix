@@ -10,16 +10,23 @@ import type {
   ConvertQueueOptions,
 } from '../../types'
 import { ConvertJobsList } from './ConvertJobsList'
-import { ConvertNeedsTable } from './ConvertNeedsTable'
+import { ConvertLiveDock } from './ConvertLiveDock'
+import {
+  ConvertNeedsTable,
+  type NeedsActionFilter,
+  type NeedsKindFilter,
+} from './ConvertNeedsTable'
 import { ConvertOptions } from './ConvertOptions'
-import { ConvertProbePanel } from './ConvertProbePanel'
-import { jobSortKey, plannedAction } from './utils'
+import { ConvertOverview } from './ConvertOverview'
+import { jobSortKey } from './utils'
 
 const FALLBACK_OPTIONS: ConvertQueueOptions = {
   mode: 'auto',
   replaceOriginal: true,
   deleteOriginal: false,
 }
+
+const PAGE_SIZES = [25, 50, 100] as const
 
 function normalizeLocalOptions(opts: ConvertQueueOptions): ConvertQueueOptions {
   return {
@@ -40,6 +47,10 @@ function optionsEqual(a: ConvertQueueOptions, b: ConvertQueueOptions): boolean {
 export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
   const [jobs, setJobs] = useState<ConvertJob[]>([])
   const [needs, setNeeds] = useState<ConvertNeedsFile[]>([])
+  const [needsTotal, setNeedsTotal] = useState(0)
+  const [remuxCount, setRemuxCount] = useState(0)
+  const [transcodeCount, setTranscodeCount] = useState(0)
+  const [unknownCount, setUnknownCount] = useState(0)
   const [stats, setStats] = useState({ queued: 0, running: 0, done: 0, failed: 0 })
   const [localMediaEnabled, setLocalMediaEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -53,6 +64,14 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
   const [savingOptions, setSavingOptions] = useState(false)
   const [optionsJustSaved, setOptionsJustSaved] = useState(false)
   const [enqueueing, setEnqueueing] = useState(false)
+
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState<number>(25)
+  const [queryInput, setQueryInput] = useState('')
+  const [query, setQuery] = useState('')
+  const [action, setAction] = useState<NeedsActionFilter>('all')
+  const [kind, setKind] = useState<NeedsKindFilter>('')
+
   const prevJobStatus = useRef<Map<number, string>>(new Map())
   const jobStatusReady = useRef(false)
   const draftRef = useRef(draftOptions)
@@ -67,14 +86,28 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
   const pollMs = probing || jobsActive ? 900 : 4000
   const dirty = optionsReady && !optionsEqual(draftOptions, savedOptions)
 
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setQuery(queryInput.trim())
+      setPage(0)
+    }, 280)
+    return () => window.clearTimeout(id)
+  }, [queryInput])
+
   const refresh = useCallback(async () => {
     try {
       const [j, n, p] = await Promise.all([
         api.convertJobs(),
-        api.convertNeeds(),
+        api.convertNeeds({
+          limit: pageSize,
+          offset: page * pageSize,
+          q: query,
+          action,
+          kind,
+        }),
         api.convertProbeStatus(),
       ])
-      // Toast when jobs finish / fail (skip the first snapshot so refresh isn't noisy)
+
       if (jobStatusReady.current) {
         for (const job of j.jobs) {
           const prev = prevJobStatus.current.get(job.id)
@@ -105,13 +138,21 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
       if (j.options) {
         const next = normalizeLocalOptions(j.options)
         setSavedOptions(next)
-        // Only overwrite the draft when first loading or when the user hasn't edited.
         if (!optionsReadyRef.current || optionsEqual(draftRef.current, savedRef.current)) {
           setDraftOptions(next)
         }
         setOptionsReady(true)
       }
+
       setNeeds(n.files)
+      setNeedsTotal(n.total)
+      setRemuxCount(n.remuxCount)
+      setTranscodeCount(n.transcodeCount)
+      setUnknownCount(n.unknownCount)
+      // If filters shrink the result set past the current page, snap back.
+      const maxPage = Math.max(0, Math.ceil(n.total / pageSize) - 1)
+      if (page > maxPage) setPage(maxPage)
+
       setProbeStatus(p.status)
       setCoverage(p.coverage)
       setProbing(p.running || p.status.phase === 'running')
@@ -120,7 +161,7 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
       notify(err instanceof Error ? err.message : 'Failed to load convert queue')
       setLoading(false)
     }
-  }, [notify])
+  }, [notify, page, pageSize, query, action, kind])
 
   useEffect(() => {
     void refresh()
@@ -138,13 +179,12 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
     [jobs],
   )
 
-  const remuxCount = useMemo(
-    () => needs.filter((f) => plannedAction(f) === 'remux').length,
-    [needs],
-  )
-  const transcodeCount = useMemo(
-    () => needs.filter((f) => plannedAction(f) === 'transcode').length,
-    [needs],
+  const activeJobs = useMemo(
+    () =>
+      sortedJobs.filter(
+        (j) => j.status === 'running' || j.status === 'queued' || j.status === 'cancelling',
+      ),
+    [sortedJobs],
   )
 
   const probePct =
@@ -153,6 +193,8 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
       : probeStatus?.phase === 'done'
         ? 100
         : 0
+
+  const overviewNeeds = coverage?.needsConvert ?? needsTotal
 
   function patchDraft(patch: Partial<ConvertQueueOptions>) {
     setOptionsJustSaved(false)
@@ -300,63 +342,45 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
     })
   }
 
-  function selectBy(kind: 'all' | 'remux' | 'transcode' | 'none') {
-    if (kind === 'none') {
-      setSelected(new Set())
-      return
-    }
-    const next = new Set<string>()
-    for (const f of needs) {
-      const plan = plannedAction(f)
-      if (kind === 'all' || plan === kind) next.add(f.path)
-    }
-    setSelected(next)
+  function selectPage() {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      for (const f of needs) next.add(f.path)
+      return next
+    })
+  }
+
+  function jumpToJobs() {
+    document.getElementById('convert-jobs')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   if (loading) return <AdminSkeleton rows={8} />
 
   return (
     <div className="admin-convert">
-      {!localMediaEnabled ? (
-        <div className="admin-banner warn">
-          <strong>Local media not detected.</strong> Set <code>LOCAL_MEDIA_ROOT</code> to your
-          container mount (e.g. <code>/media</code>) so convert jobs can read/write files on disk.
-          Playback over WebDAV still works; conversion requires local paths.
-        </div>
-      ) : (
-        <div className="admin-banner ok">
-          Local media ready — convert jobs run with FFmpeg on this host. Auto mode remuxes H.264
-          (fast stream-copy) and only transcodes when the video codec needs it.
-        </div>
-      )}
+      <ConvertLiveDock
+        probing={probing}
+        probeStatus={probeStatus}
+        probePct={probePct}
+        activeJobs={activeJobs}
+        queued={stats.queued}
+        running={stats.running}
+        onCancelProbe={cancelLibraryProbe}
+        onCancelJob={cancelJob}
+        onJumpToJobs={jumpToJobs}
+      />
 
-      <ConvertProbePanel
+      <ConvertOverview
+        localMediaEnabled={localMediaEnabled}
         probing={probing}
         probeStatus={probeStatus}
         coverage={coverage}
         probePct={probePct}
+        stats={stats}
+        needsTotal={overviewNeeds}
         onStartProbe={startLibraryProbe}
         onCancelProbe={cancelLibraryProbe}
       />
-
-      <div className="admin-stat-grid">
-        <div className={`admin-stat-card${stats.queued ? ' warn' : ''}`}>
-          <span className="admin-stat-label">Queued</span>
-          <strong>{stats.queued}</strong>
-        </div>
-        <div className={`admin-stat-card${stats.running ? ' warn' : ''}`}>
-          <span className="admin-stat-label">Running</span>
-          <strong>{stats.running}</strong>
-        </div>
-        <div className="admin-stat-card">
-          <span className="admin-stat-label">Done</span>
-          <strong>{stats.done}</strong>
-        </div>
-        <div className={`admin-stat-card${stats.failed ? ' warn' : ''}`}>
-          <span className="admin-stat-label">Failed</span>
-          <strong>{stats.failed}</strong>
-        </div>
-      </div>
 
       <ConvertOptions
         mode={draftOptions.mode}
@@ -372,29 +396,54 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
         onReset={resetOptions}
       />
 
-      <ConvertJobsList
-        jobs={sortedJobs}
-        enqueueing={enqueueing}
-        localMediaEnabled={localMediaEnabled}
-        notify={notify}
-        onRefresh={refresh}
-        onCancelJob={cancelJob}
-        onRetry={enqueueOne}
-      />
+      <div className="convert-main-grid">
+        <ConvertJobsList
+          jobs={sortedJobs}
+          enqueueing={enqueueing}
+          localMediaEnabled={localMediaEnabled}
+          notify={notify}
+          onRefresh={refresh}
+          onCancelJob={cancelJob}
+          onRetry={enqueueOne}
+        />
 
-      <ConvertNeedsTable
-        needs={needs}
-        selected={selected}
-        remuxCount={remuxCount}
-        transcodeCount={transcodeCount}
-        enqueueing={enqueueing}
-        localMediaEnabled={localMediaEnabled}
-        notify={notify}
-        onToggle={toggle}
-        onSelectBy={selectBy}
-        onEnqueueSelected={enqueueSelected}
-        onEnqueueOne={enqueueOne}
-      />
+        <ConvertNeedsTable
+          needs={needs}
+          total={needsTotal}
+          page={page}
+          pageSize={pageSize}
+          query={queryInput}
+          action={action}
+          kind={kind}
+          remuxCount={remuxCount}
+          transcodeCount={transcodeCount}
+          unknownCount={unknownCount}
+          selected={selected}
+          enqueueing={enqueueing}
+          localMediaEnabled={localMediaEnabled}
+          notify={notify}
+          onQueryChange={setQueryInput}
+          onActionChange={(next) => {
+            setAction(next)
+            setPage(0)
+          }}
+          onKindChange={(next) => {
+            setKind(next)
+            setPage(0)
+          }}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            const next = PAGE_SIZES.includes(size as (typeof PAGE_SIZES)[number]) ? size : 25
+            setPageSize(next)
+            setPage(0)
+          }}
+          onToggle={toggle}
+          onSelectPage={selectPage}
+          onClearSelection={() => setSelected(new Set())}
+          onEnqueueSelected={enqueueSelected}
+          onEnqueueOne={enqueueOne}
+        />
+      </div>
     </div>
   )
 }

@@ -194,38 +194,189 @@ export function replaceMediaPath(
   db.prepare(`UPDATE playback_sessions SET path = ? WHERE path = ?`).run(newPath, oldPath)
 }
 
-export function listFilesNeedingConvert(limit = 200): Array<
-  MediaFileRow & { title: string; kind: string; poster_path: string | null }
-> {
-  return db
+const NEEDS_CONVERT_WHERE = `
+  t.hidden = 0
+  AND (
+    f.can_direct = 0
+    OR f.playback_mode IN ('remux', 'transcode')
+    OR f.probe_error IS NOT NULL
+    OR (f.probed_at IS NOT NULL AND f.video_codec IS NULL)
+    OR (
+      f.probed_at IS NULL AND (
+        lower(f.filename) LIKE '%.mkv'
+        OR lower(f.filename) LIKE '%.avi'
+        OR lower(f.filename) LIKE '%.ts'
+        OR lower(f.filename) LIKE '%.m2ts'
+        OR lower(f.filename) LIKE '%.mts'
+        OR lower(f.filename) LIKE '%.wmv'
+        OR lower(f.filename) LIKE '%.flv'
+      )
+    )
+  )
+`
+
+/** Remux candidates: H.264 or already classified remux (and not direct). */
+const ACTION_REMUX_SQL = `
+  (
+    f.can_direct = 0
+    AND f.probe_error IS NULL
+    AND (
+      f.playback_mode = 'remux'
+      OR lower(COALESCE(f.video_codec, '')) = 'h264'
+    )
+  )
+`
+
+/** Transcode candidates: non-H.264 / classified transcode. */
+const ACTION_TRANSCODE_SQL = `
+  (
+    f.can_direct = 0
+    AND f.probe_error IS NULL
+    AND (
+      f.playback_mode = 'transcode'
+      OR (
+        f.video_codec IS NOT NULL
+        AND lower(f.video_codec) != 'h264'
+        AND COALESCE(f.playback_mode, '') != 'remux'
+      )
+    )
+  )
+`
+
+const ACTION_UNKNOWN_SQL = `
+  (
+    f.probe_error IS NOT NULL
+    OR f.video_codec IS NULL
+    OR f.playback_mode IS NULL
+    OR f.can_direct IS NULL
+  )
+`
+
+export type NeedsConvertActionFilter = 'all' | 'remux' | 'transcode' | 'unknown'
+
+export type NeedsConvertQuery = {
+  limit?: number
+  offset?: number
+  q?: string
+  action?: NeedsConvertActionFilter
+  kind?: 'movie' | 'tv' | ''
+}
+
+export type NeedsConvertFileRow = MediaFileRow & {
+  title: string
+  kind: string
+  poster_path: string | null
+}
+
+function actionFilterSql(action: NeedsConvertActionFilter | undefined): string {
+  if (action === 'remux') return `AND ${ACTION_REMUX_SQL}`
+  if (action === 'transcode') return `AND ${ACTION_TRANSCODE_SQL}`
+  if (action === 'unknown') return `AND ${ACTION_UNKNOWN_SQL}`
+  return ''
+}
+
+function buildNeedsConvertFilters(opts: NeedsConvertQuery = {}): {
+  where: string
+  params: Array<string | number>
+} {
+  const params: Array<string | number> = []
+  let where = NEEDS_CONVERT_WHERE
+  where += ` ${actionFilterSql(opts.action)}`
+  if (opts.kind === 'movie' || opts.kind === 'tv') {
+    where += ` AND t.kind = ?`
+    params.push(opts.kind)
+  }
+  const q = (opts.q || '').trim()
+  if (q) {
+    where += ` AND (t.title LIKE ? OR f.filename LIKE ? OR f.path LIKE ?)`
+    const like = `%${q.replace(/[%_]/g, '')}%`
+    params.push(like, like, like)
+  }
+  return { where, params }
+}
+
+export function queryFilesNeedingConvert(opts: NeedsConvertQuery = {}): {
+  files: NeedsConvertFileRow[]
+  total: number
+  remuxCount: number
+  transcodeCount: number
+  unknownCount: number
+} {
+  const limit = Math.min(200, Math.max(1, Number(opts.limit ?? 50) || 50))
+  const offset = Math.max(0, Number(opts.offset ?? 0) || 0)
+  const { where, params } = buildNeedsConvertFilters(opts)
+
+  const total = (
+    db
+      .prepare(
+        `
+        SELECT COUNT(*) AS c
+        FROM media_files f
+        JOIN titles t ON t.id = f.title_id
+        WHERE ${where}
+      `,
+      )
+      .get(...params) as { c: number }
+  ).c
+
+  const files = db
     .prepare(
       `
       SELECT f.*, t.title, t.kind, t.poster_path
       FROM media_files f
       JOIN titles t ON t.id = f.title_id
-      WHERE t.hidden = 0
-        AND (
-          f.can_direct = 0
-          OR f.playback_mode IN ('remux', 'transcode')
-          OR f.probe_error IS NOT NULL
-          OR (f.probed_at IS NOT NULL AND f.video_codec IS NULL)
-          OR (
-            f.probed_at IS NULL AND (
-              lower(f.filename) LIKE '%.mkv'
-              OR lower(f.filename) LIKE '%.avi'
-              OR lower(f.filename) LIKE '%.ts'
-              OR lower(f.filename) LIKE '%.m2ts'
-              OR lower(f.filename) LIKE '%.mts'
-              OR lower(f.filename) LIKE '%.wmv'
-              OR lower(f.filename) LIKE '%.flv'
-            )
-          )
-        )
-      ORDER BY f.filename ASC
-      LIMIT ?
+      WHERE ${where}
+      ORDER BY t.title ASC, f.filename ASC
+      LIMIT ? OFFSET ?
     `,
     )
-    .all(limit) as Array<MediaFileRow & { title: string; kind: string; poster_path: string | null }>
+    .all(...params, limit, offset) as NeedsConvertFileRow[]
+
+  // Action breakdown ignores the action filter so chips stay useful while filtering.
+  const base = buildNeedsConvertFilters({ ...opts, action: 'all' })
+  const remuxCount = (
+    db
+      .prepare(
+        `
+        SELECT COUNT(*) AS c
+        FROM media_files f
+        JOIN titles t ON t.id = f.title_id
+        WHERE ${base.where} AND ${ACTION_REMUX_SQL}
+      `,
+      )
+      .get(...base.params) as { c: number }
+  ).c
+  const transcodeCount = (
+    db
+      .prepare(
+        `
+        SELECT COUNT(*) AS c
+        FROM media_files f
+        JOIN titles t ON t.id = f.title_id
+        WHERE ${base.where} AND ${ACTION_TRANSCODE_SQL}
+      `,
+      )
+      .get(...base.params) as { c: number }
+  ).c
+  const unknownCount = (
+    db
+      .prepare(
+        `
+        SELECT COUNT(*) AS c
+        FROM media_files f
+        JOIN titles t ON t.id = f.title_id
+        WHERE ${base.where} AND ${ACTION_UNKNOWN_SQL}
+      `,
+      )
+      .get(...base.params) as { c: number }
+  ).c
+
+  return { files, total, remuxCount, transcodeCount, unknownCount }
+}
+
+/** @deprecated Prefer queryFilesNeedingConvert — kept for probe enqueue helpers. */
+export function listFilesNeedingConvert(limit = 200): NeedsConvertFileRow[] {
+  return queryFilesNeedingConvert({ limit, offset: 0 }).files
 }
 
 /** Paths to ffprobe for codec detection (unprobed / failed, or entire library when force). */

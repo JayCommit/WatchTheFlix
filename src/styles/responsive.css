@@ -100,11 +100,6 @@
   }
 }
 
-.admin-convert {
-  display: grid;
-  gap: 1.25rem;
-}
-
 .admin-banner {
   padding: 0.85rem 1rem;
   border-radius: 12px;
