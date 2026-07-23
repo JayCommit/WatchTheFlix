@@ -21,19 +21,25 @@ export function resolveLocalPath(libraryPath: string): string | null {
   if (!localRoot) return null
 
   const root = resolve(localRoot)
-  const mediaRoot = c.mediaRoot === '/' ? '' : c.mediaRoot
+  const mediaRoots = (c.mediaRoots?.length ? c.mediaRoots : [c.mediaRoot])
+    .map((r) => (r === '/' ? '' : r))
+    .filter(Boolean)
+    // Longest prefix first so nested roots win
+    .sort((a, b) => b.length - a.length)
 
-  let rel = normalized
-  if (mediaRoot && (normalized === mediaRoot || normalized.startsWith(`${mediaRoot}/`))) {
-    rel = normalized.slice(mediaRoot.length)
+  const relCandidates: string[] = []
+  for (const mediaRoot of mediaRoots) {
+    if (normalized === mediaRoot || normalized.startsWith(`${mediaRoot}/`)) {
+      relCandidates.push(normalized.slice(mediaRoot.length).replace(/^\/+/, ''))
+    }
   }
-  rel = rel.replace(/^\/+/, '')
+  relCandidates.push(normalized.replace(/^\/+/, ''))
 
-  const candidate = resolve(join(root, rel))
-  if (isInsideRoot(candidate, root) && existsSync(candidate)) return candidate
-
-  const alt = resolve(join(root, normalized.replace(/^\/+/, '')))
-  if (isInsideRoot(alt, root) && existsSync(alt)) return alt
+  for (const rel of relCandidates) {
+    if (!rel) continue
+    const candidate = resolve(join(root, rel))
+    if (isInsideRoot(candidate, root) && existsSync(candidate)) return candidate
+  }
 
   return null
 }

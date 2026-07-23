@@ -1,6 +1,6 @@
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -26,14 +26,17 @@ import {
   getLibraryStats,
   getMediaFileByPath,
   getProgress,
+  getProfileProgress,
+  getPreferredFile,
   getScanMeta,
   getTitleById,
   getTitleByTmdb,
   getPlaybackSession,
   insertActivityEvent,
   listActivityEvents,
-  listContinueWatching,
   listConvertJobs,
+  listProfileContinueWatching,
+  getProfile,
   listFilesNeedingConvert,
   listNowPlaying,
   listRecentProgressActivity,
@@ -54,6 +57,7 @@ import {
   upsertProgress,
 } from './db.ts'
 import { scanLibrary } from './scanner.ts'
+import { withScanLock } from './scan-lock.ts'
 import {
   backdropUrl,
   getByTmdbId,
@@ -209,9 +213,10 @@ app.get('/api/health', (c) => c.json({ ok: true }))
 app.get('/api/me', (c) => c.json({ authed: c.get('authed') }))
 
 app.post('/api/login', async (c) => {
+  // Prefer proxy headers only when present (typical reverse-proxy deploy); else a stable local key.
   const ip =
+    c.req.header('x-real-ip')?.trim() ||
     c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
-    c.req.header('x-real-ip') ||
     'local'
   const gate = loginAllowed(ip)
   if (!gate.ok) {
@@ -259,7 +264,7 @@ app.post('/api/scan', async (c) => {
   try {
     reloadConfig()
     console.log('Scan starting with config:', publicConfigSummary())
-    const result = await scanLibrary()
+    const result = await withScanLock(() => scanLibrary())
     console.log('Scan finished:', {
       filesFound: result.filesFound,
       titles: result.titles,
@@ -270,12 +275,18 @@ app.post('/api/scan', async (c) => {
     return c.json(result)
   } catch (err) {
     console.error('Scan failed:', err)
-    return c.json(
-      { error: err instanceof Error ? err.message : 'Scan failed' },
-      500,
-    )
+    const msg = err instanceof Error ? err.message : 'Scan failed'
+    const status = msg.includes('already running') ? 409 : 500
+    return c.json({ error: msg }, status)
   }
 })
+
+function activeProfileId(c: Context): number {
+  const profileRaw = c.req.header('x-profile-id') || getCookie(c, 'wtf_profile') || '1'
+  const profileId = Number(profileRaw)
+  if (Number.isFinite(profileId) && profileId > 0 && getProfile(profileId)) return profileId
+  return 1
+}
 
 app.get('/api/library', (c) => {
   const denied = requireAuth(c)
@@ -284,7 +295,22 @@ app.get('/api/library', (c) => {
   const movies = listTitles('movie').map((t) => serializeTitle(t)!)
   const shows = listTitles('tv').map((t) => serializeTitle(t)!)
   const recent = getRecentlyAdded(24).map((t) => serializeTitle(t)!)
-  const continueWatching = listContinueWatching(20).map((item) => ({
+  const continueWatching = (
+    listProfileContinueWatching(activeProfileId(c), 20) as Array<{
+      path: string
+      position: number
+      duration: number
+      updated_at: string
+      filename: string
+      title_id: number
+      kind: string
+      title: string
+      poster_path: string | null
+      backdrop_path: string | null
+      season: number | null
+      episode: number | null
+    }>
+  ).map((item) => ({
     path: item.path,
     position: item.position,
     duration: item.duration,
@@ -316,13 +342,18 @@ app.get('/api/movie/:id', (c) => {
   const id = Number(c.req.param('id'))
   const title = getTitleById(id)
   if (!title || title.kind !== 'movie' || title.hidden) return c.json({ error: 'Not found' }, 404)
-  const files = getFilesForTitle(id).map((f) => ({
-    path: f.path,
-    filename: f.filename,
-    size: f.size,
-    label: versionLabel(f.filename),
-    progress: getProgress(f.path) ?? null,
-  }))
+  const pid = activeProfileId(c)
+  const preferred = getPreferredFile(id, null, null)
+  const files = getFilesForTitle(id)
+    .map((f) => ({
+      path: f.path,
+      filename: f.filename,
+      size: f.size,
+      label: versionLabel(f.filename),
+      preferred: preferred === f.path,
+      progress: getProfileProgress(pid, f.path) ?? null,
+    }))
+    .sort((a, b) => Number(b.preferred) - Number(a.preferred))
   return c.json({ ...serializeTitle(title)!, files })
 })
 
@@ -342,16 +373,31 @@ app.get('/api/tv/:id', async (c) => {
     }
   }
 
-  const files = getFilesForTitle(id).map((f) => ({
-    path: f.path,
-    filename: f.filename,
-    size: f.size,
-    season: f.season,
-    episode: f.episode,
-    episodeName: f.episode_name,
-    label: versionLabel(f.filename),
-    progress: getProgress(f.path) ?? null,
-  }))
+  const pid = activeProfileId(c)
+  const files = getFilesForTitle(id).map((f) => {
+    const preferred = getPreferredFile(id, f.season, f.episode)
+    return {
+      path: f.path,
+      filename: f.filename,
+      size: f.size,
+      season: f.season,
+      episode: f.episode,
+      episodeName: f.episode_name,
+      label: versionLabel(f.filename),
+      preferred: preferred === f.path,
+      progress: getProfileProgress(pid, f.path) ?? null,
+    }
+  })
+  // Preferred versions first within the same S/E
+  files.sort((a, b) => {
+    const sa = a.season ?? 0
+    const sb = b.season ?? 0
+    if (sa !== sb) return sa - sb
+    const ea = a.episode ?? 0
+    const eb = b.episode ?? 0
+    if (ea !== eb) return ea - eb
+    return Number(b.preferred) - Number(a.preferred)
+  })
   return c.json({ ...serializeTitle(title)!, files })
 })
 
@@ -961,8 +1007,11 @@ app.get('/api/stream', async (c) => {
     const requestedMode = c.req.query('mode')
     const startRaw = c.req.query('t')
     const startSeconds = startRaw ? Math.max(0, Number(startRaw)) : 0
-    const audioIndex = Number(c.req.query('audio') ?? 0) || 0
+    const audioIndex = Math.max(0, Number(c.req.query('audio') ?? 0) || 0)
     const info = await resolvePlaybackMode(path, requestedMode, { audioIndex })
+    if (info.audioTracks.length && audioIndex >= info.audioTracks.length) {
+      return c.json({ error: `Invalid audio track index ${audioIndex}` }, 400)
+    }
     const audioCodec =
       info.audioTracks[audioIndex]?.codec ?? info.audioCodec
 

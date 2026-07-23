@@ -192,6 +192,15 @@ export function resolveHwEncoder(): string {
   return 'libx264'
 }
 
+/** Args that must appear before `-i` (VAAPI device init). */
+function preInputHwArgs(mode: 'remux' | 'transcode'): string[] {
+  if (mode !== 'transcode') return []
+  if (resolveHwEncoder() === 'h264_vaapi') {
+    return ['-vaapi_device', '/dev/dri/renderD128']
+  }
+  return []
+}
+
 function videoEncodeArgs(mode: 'remux' | 'transcode'): string[] {
   if (mode === 'remux') return ['-c:v', 'copy']
   const enc = resolveHwEncoder()
@@ -199,16 +208,7 @@ function videoEncodeArgs(mode: 'remux' | 'transcode'): string[] {
     return ['-c:v', 'h264_nvenc', '-preset', 'p4', '-cq', '23', '-pix_fmt', 'yuv420p']
   }
   if (enc === 'h264_vaapi') {
-    return [
-      '-vaapi_device',
-      '/dev/dri/renderD128',
-      '-vf',
-      'format=nv12,hwupload',
-      '-c:v',
-      'h264_vaapi',
-      '-qp',
-      '23',
-    ]
+    return ['-vf', 'format=nv12,hwupload', '-c:v', 'h264_vaapi', '-qp', '23']
   }
   if (enc === 'h264_qsv') {
     return ['-c:v', 'h264_qsv', '-preset', 'veryfast', '-global_quality', '23']
@@ -362,7 +362,8 @@ function codecArgs(
   audioCodec: string | null,
   audioIndex: number,
 ): string[] {
-  const map = ['-map', '0:v:0', '-map', `0:a:${Math.max(0, audioIndex)}?`]
+  const idx = Math.max(0, audioIndex)
+  const map = ['-map', '0:v:0', '-map', `0:a:${idx}`]
   const audio =
     mode === 'remux' && audioCodec && COPY_AUDIO.has(audioCodec)
       ? ['-c:a', 'copy']
@@ -383,6 +384,7 @@ function buildFfmpegArgs(
     args.push('-ss', String(startSeconds))
   }
 
+  args.push(...preInputHwArgs(mode))
   addInputArgs(args, path)
   args.push(...codecArgs(mode, audioCodec, audioIndex))
   args.push(
@@ -406,6 +408,7 @@ export function buildConvertFileArgs(
   return [
     '-hide_banner',
     '-y',
+    ...preInputHwArgs(mode),
     '-i',
     sourceLocal,
     ...codecArgs(mode, audioCodec, audioIndex),

@@ -92,18 +92,12 @@ export const api = {
     }>('/api/scan', { method: 'POST' }),
   movie: (id: number) => request<TitleDetail>(`/api/movie/${id}`),
   tv: (id: number) => request<TitleDetail>(`/api/tv/${id}`),
-  saveProgress: async (path: string, position: number, duration: number) => {
-    await request<{ ok: boolean }>('/api/progress', {
+  saveProgress: (path: string, position: number, duration: number) =>
+    // Profile-scoped write (server also mirrors to legacy progress for profile 1)
+    request<{ ok: boolean }>('/api/progress/profile', {
       method: 'PUT',
       body: JSON.stringify({ path, position, duration, clientId: getClientId() }),
-    })
-    // Best-effort profile-scoped copy
-    void request<{ ok: boolean }>('/api/progress/profile', {
-      method: 'PUT',
-      body: JSON.stringify({ path, position, duration }),
-    }).catch(() => undefined)
-    return { ok: true as const }
-  },
+    }),
   playbackHeartbeat: (body: {
     path: string
     titleId?: number

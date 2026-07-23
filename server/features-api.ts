@@ -1,5 +1,6 @@
 import type { Context, Hono } from 'hono'
 import { getCookie, setCookie } from 'hono/cookie'
+import { dirname, join } from 'node:path'
 import {
   addToWatchlist,
   createProfile,
@@ -38,7 +39,8 @@ function requireAuth(c: {
 function profileIdFrom(c: Context): number {
   const raw = c.req.header('x-profile-id') || getCookie(c, 'wtf_profile') || '1'
   const id = Number(raw)
-  return Number.isFinite(id) && id > 0 ? id : 1
+  if (Number.isFinite(id) && id > 0 && getProfile(id)) return id
+  return 1
 }
 
 export function registerFeatureRoutes(app: Hono<Vars>): void {
@@ -73,11 +75,14 @@ export function registerFeatureRoutes(app: Hono<Vars>): void {
       if (kind === 'external') {
         const sidecar = c.req.query('sidecar')
         if (!sidecar || sidecar.includes('..')) return c.json({ error: 'Invalid sidecar' }, 400)
-        // Only allow sidecars under resolved media dir for this file
+        // Only allow exact sidecar paths discovered next to this media file
         const externals = listExternalSubtitles(path)
-        const hit = externals.find((t) => t.path === sidecar || t.index === index)
-        if (!hit?.path) return c.json({ error: 'Subtitle not found' }, 404)
-        const vtt = readExternalSubtitleVtt(hit.path)
+        const hit = externals.find((t) => t.path === sidecar || t.title === sidecar)
+        if (!hit?.title) return c.json({ error: 'Subtitle not found' }, 404)
+        const local = resolveLocalPath(path)
+        if (!local) return c.json({ error: 'Local media required for external subs' }, 400)
+        const full = join(dirname(local), hit.title)
+        const vtt = readExternalSubtitleVtt(full)
         return new Response(vtt, {
           headers: { 'Content-Type': 'text/vtt; charset=utf-8', 'Cache-Control': 'no-store' },
         })

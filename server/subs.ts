@@ -35,13 +35,14 @@ export function listExternalSubtitles(libraryPath: string): SubtitleTrack[] {
     if (stem !== base && !stem.startsWith(`${base}.`) && !stem.startsWith(`${base}-`)) continue
     if (!existsSync(join(dir, name))) continue
     const langMatch = stem.slice(base.length).replace(/^[-.]/, '')
+    // Return sidecar as filename key relative to the media file (not absolute host paths)
     tracks.push({
       index: 10_000 + i,
       codec: ext.slice(1),
       language: langMatch || null,
       title: name,
       kind: 'external',
-      path: join(dir, name).replace(/\\/g, '/'),
+      path: name,
     })
     i += 1
   }

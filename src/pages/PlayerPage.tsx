@@ -37,6 +37,9 @@ export function PlayerPage() {
   const [audioIndex, setAudioIndex] = useState(0)
   const [subtitleKey, setSubtitleKey] = useState<string>('off')
   const [showUpNext, setShowUpNext] = useState(false)
+  const upNextDismissedRef = useRef(false)
+  const pathForProbeRef = useRef('')
+  const audioOnlyReloadRef = useRef(false)
 
   const titleId = Number(params.get('titleId'))
   const kind = (params.get('kind') as 'movie' | 'tv') || 'movie'
@@ -103,8 +106,17 @@ export function PlayerPage() {
     const resume = !fromStart && file?.progress?.position && file.progress.position > 30
       ? file.progress.position
       : 0
-    // Keep current position when only switching audio tracks
-    const holdAt = startOffsetRef.current > 1 ? startOffsetRef.current : resume
+    const samePath = pathForProbeRef.current === path
+    const audioOnly = samePath && audioOnlyReloadRef.current
+    audioOnlyReloadRef.current = false
+    pathForProbeRef.current = path
+    if (!samePath) {
+      upNextDismissedRef.current = false
+      setShowUpNext(false)
+      setStartOffset(0)
+    }
+    // Keep current position only when switching audio on the same file
+    const holdAt = audioOnly && startOffsetRef.current > 1 ? startOffsetRef.current : resume
 
     api
       .streamInfo(path, audioIndex)
@@ -116,8 +128,9 @@ export function PlayerPage() {
         if ((mode === 'remux' || mode === 'transcode') && holdAt > 0) {
           setStartOffset(holdAt)
           setCurrentTime(holdAt)
-        } else if (mode === 'direct') {
-          setStartOffset(0)
+        } else if (!audioOnly) {
+          setStartOffset(mode === 'direct' ? 0 : holdAt > 0 ? holdAt : 0)
+          if (mode === 'direct') setCurrentTime(0)
         }
         setSrcNonce((n) => n + 1)
       })
@@ -214,7 +227,11 @@ export function PlayerPage() {
         streamInfo.mode === 'direct'
           ? video.duration || duration || 0
           : duration || video.duration || 0
-      if (dur > 0 && t >= dur - 35 && t < dur - 0.5) setShowUpNext(true)
+      if (dur > 0 && t >= dur - 35 && t < dur - 0.5) {
+        if (!upNextDismissedRef.current) setShowUpNext(true)
+      } else if (dur > 0 && t < dur - 35) {
+        setShowUpNext(false)
+      }
     }
     const onDuration = () => {
       if (streamInfo.mode === 'direct' && video.duration) setDuration(video.duration)
@@ -332,8 +349,11 @@ export function PlayerPage() {
   const goNext = useCallback(() => {
     if (!nextFile || !detail) return
     setShowUpNext(false)
+    upNextDismissedRef.current = false
     setSubtitleKey('off')
     setAudioIndex(0)
+    setStartOffset(0)
+    startOffsetRef.current = 0
     void saveProgress(true)
     const url = `/play?path=${encodeURIComponent(nextFile.path)}&titleId=${detail.id}&kind=tv`
     navigate(url)
@@ -669,7 +689,10 @@ export function PlayerPage() {
                       value={audioIndex}
                       onChange={(e) => {
                         const next = Number(e.target.value)
-                        setStartOffset(absoluteTime())
+                        const at = absoluteTime()
+                        setStartOffset(at)
+                        startOffsetRef.current = at
+                        audioOnlyReloadRef.current = true
                         setAudioIndex(next)
                         setBuffering(true)
                       }}
@@ -763,7 +786,10 @@ export function PlayerPage() {
               <button
                 className="btn btn-ghost"
                 type="button"
-                onClick={() => setShowUpNext(false)}
+                onClick={() => {
+                  upNextDismissedRef.current = true
+                  setShowUpNext(false)
+                }}
               >
                 Dismiss
               </button>

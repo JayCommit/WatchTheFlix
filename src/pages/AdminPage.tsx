@@ -1007,8 +1007,14 @@ export function AdminPage({ onLogout }: Props) {
                               )
                               void (async () => {
                                 try {
-                                  await api.adminDeleteFile(f.path, deleteDisk)
-                                  notify(deleteDisk ? 'Deleted from index + disk' : 'Removed from index')
+                                  const res = await api.adminDeleteFile(f.path, deleteDisk)
+                                  if (deleteDisk && res.diskDeleted) {
+                                    notify('Deleted from index + disk')
+                                  } else if (deleteDisk && !res.diskDeleted) {
+                                    notify('Removed from index (disk file unavailable)')
+                                  } else {
+                                    notify('Removed from index')
+                                  }
                                   if (drawer) await openDrawer(drawer.id)
                                   await loadTitles()
                                 } catch (err) {
@@ -1018,6 +1024,24 @@ export function AdminPage({ onLogout }: Props) {
                             }}
                           >
                             Delete
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            type="button"
+                            onClick={() => {
+                              if (!drawer) return
+                              void (async () => {
+                                try {
+                                  await api.adminPreferFile(drawer.id, f.path)
+                                  notify('Preferred version set')
+                                  await openDrawer(drawer.id)
+                                } catch (err) {
+                                  notify(err instanceof Error ? err.message : 'Prefer failed')
+                                }
+                              })()
+                            }}
+                          >
+                            Prefer
                           </button>
                           <button
                             className="btn btn-ghost btn-sm"

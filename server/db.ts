@@ -375,15 +375,8 @@ export function clearLibrary(): void {
 /** Remove files whose paths are not in the given set; prune empty non-override titles. */
 export function pruneMissingFiles(seenPaths: Set<string>): void {
   const all = db.prepare(`SELECT path FROM media_files`).all() as Array<{ path: string }>
-  const delFile = db.prepare(`DELETE FROM media_files WHERE path = ?`)
-  const delProgress = db.prepare(`DELETE FROM progress WHERE path = ?`)
-  const delSessions = db.prepare(`DELETE FROM playback_sessions WHERE path = ?`)
   for (const row of all) {
-    if (!seenPaths.has(row.path)) {
-      delFile.run(row.path)
-      delProgress.run(row.path)
-      delSessions.run(row.path)
-    }
+    if (!seenPaths.has(row.path)) deleteMediaFileRow(row.path)
   }
   db.exec(`
     DELETE FROM titles
@@ -1482,6 +1475,7 @@ export function deleteMediaFileRow(path: string): boolean {
   db.prepare(`DELETE FROM progress WHERE path = ?`).run(path)
   db.prepare(`DELETE FROM profile_progress WHERE path = ?`).run(path)
   db.prepare(`DELETE FROM playback_sessions WHERE path = ?`).run(path)
+  db.prepare(`DELETE FROM preferred_files WHERE path = ?`).run(path)
   const result = db.prepare(`DELETE FROM media_files WHERE path = ?`).run(path)
   return Number(result.changes ?? 0) > 0
 }

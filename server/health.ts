@@ -8,6 +8,15 @@ export type MissingEpisode = {
   airDate: string | null
 }
 
+const GRACE_MS = 24 * 60 * 60 * 1000
+
+function isAired(airDate: string | null): boolean {
+  if (!airDate) return false
+  const t = Date.parse(airDate)
+  if (!Number.isFinite(t)) return false
+  return t <= Date.now() + GRACE_MS
+}
+
 export async function getTitleHealth(titleId: number): Promise<{
   titleId: number
   kind: string
@@ -38,15 +47,18 @@ export async function getTitleHealth(titleId: number): Promise<{
   const seasonCount = await getTvSeasonCount(title.tmdb_id)
   const missing: MissingEpisode[] = []
   let expected = 0
+  let presentAired = 0
   const maxSeasons = Math.min(seasonCount, 30)
 
   for (let s = 1; s <= maxSeasons; s++) {
     try {
       const eps = await getTvSeasonEpisodes(title.tmdb_id, s)
       for (const ep of eps) {
-        // Skip unaired far-future loosely: still count as expected if air date exists in past/near
+        if (!isAired(ep.airDate)) continue
         expected += 1
-        if (!have.has(`${ep.season}x${ep.episode}`)) {
+        if (have.has(`${ep.season}x${ep.episode}`)) {
+          presentAired += 1
+        } else {
           missing.push(ep)
         }
       }
@@ -59,7 +71,7 @@ export async function getTitleHealth(titleId: number): Promise<{
     titleId,
     kind: 'tv',
     missing: missing.slice(0, 200),
-    present: have.size,
+    present: presentAired,
     expected,
     seasonsChecked: maxSeasons,
   }
