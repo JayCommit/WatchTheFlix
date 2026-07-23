@@ -400,6 +400,19 @@ export const api = {
     request<{ ok: boolean; title?: AdminTitle }>(`/api/admin/titles/${id}`, {
       method: 'DELETE',
     }),
+  mergeTitle: (sourceId: number, targetId: number) =>
+    request<{ ok: boolean; moved: number; target: AdminTitle }>(
+      `/api/admin/titles/${sourceId}/merge`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ targetId }),
+      },
+    ).then((r) => ({ ...r, target: normalizeAdminTitle(r.target as AdminTitle) })),
+  reassignFile: (path: string, titleId: number) =>
+    request<{ ok: boolean }>('/api/admin/files/reassign', {
+      method: 'POST',
+      body: JSON.stringify({ path, titleId }),
+    }),
   tmdbSearch: (q: string, kind: 'movie' | 'tv', year?: number | null) => {
     const sp = new URLSearchParams({ q, kind })
     if (year) sp.set('year', String(year))
