@@ -654,6 +654,8 @@ export function AdminPage({ user, onLogout }: Props) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+    // setSection is stable enough (closes over setSearchParams)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawer, drawerLoading, editId, rematchId])
 
   return (
