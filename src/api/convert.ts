@@ -3,6 +3,7 @@ import type {
   CodecProbeStatus,
   ConvertJob,
   ConvertNeedsFile,
+  ConvertQueueOptions,
 } from '../types'
 import { request } from './client'
 
@@ -13,7 +14,19 @@ export const convertApi = {
       stats: { queued: number; running: number; done: number; failed: number }
       localMediaEnabled: boolean
       deleteOriginalDefault: boolean
+      options: ConvertQueueOptions
     }>('/api/admin/convert/jobs'),
+  convertOptions: () =>
+    request<{
+      options: ConvertQueueOptions
+      deleteOriginalDefault: boolean
+      localMediaEnabled: boolean
+    }>('/api/admin/convert/options'),
+  convertSaveOptions: (options: Partial<ConvertQueueOptions>) =>
+    request<{ options: ConvertQueueOptions; ok: boolean }>('/api/admin/convert/options', {
+      method: 'PUT',
+      body: JSON.stringify(options),
+    }),
   convertNeeds: (limit = 200) =>
     request<{ files: ConvertNeedsFile[]; localMediaEnabled: boolean }>(
       `/api/admin/convert/needs?limit=${limit}`,
@@ -62,6 +75,7 @@ export const convertApi = {
       jobs: Array<{ job: ConvertJob | null }>
       errors: string[]
       stats: { queued: number; running: number; done: number; failed: number }
+      options?: ConvertQueueOptions
     }>('/api/admin/convert/enqueue', {
       method: 'POST',
       body: JSON.stringify(body),

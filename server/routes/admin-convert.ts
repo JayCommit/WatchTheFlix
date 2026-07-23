@@ -8,6 +8,11 @@ import {
 } from '../codec-probe.ts'
 import { getConfig } from '../config.ts'
 import {
+  getConvertQueueOptions,
+  setConvertQueueOptions,
+  type ConvertQueueOptions,
+} from '../convert-options.ts'
+import {
   enqueueConvertForPath,
   requestCancelConvert,
 } from '../convert.ts'
@@ -31,12 +36,33 @@ export function registerAdminConvertRoutes(app: Hono<Vars>): void {
     const denied = requireAdmin(c)
     if (denied) return denied
     const limit = Math.min(200, Number(c.req.query('limit') ?? 100) || 100)
+    const options = getConvertQueueOptions()
     return c.json({
       jobs: listConvertJobs(limit).map((j) => serializeConvertJob(j)),
       stats: convertJobStats(),
       localMediaEnabled: localMediaEnabled(),
       deleteOriginalDefault: getConfig().convertDeleteOriginalDefault,
+      options,
     })
+  })
+
+  app.get('/api/admin/convert/options', (c) => {
+    const denied = requireAdmin(c)
+    if (denied) return denied
+    return c.json({
+      options: getConvertQueueOptions(),
+      deleteOriginalDefault: getConfig().convertDeleteOriginalDefault,
+      localMediaEnabled: localMediaEnabled(),
+    })
+  })
+
+  app.put('/api/admin/convert/options', async (c) => {
+    const denied = requireAdmin(c)
+    if (denied) return denied
+    const body =
+      (await c.req.json<Partial<ConvertQueueOptions>>().catch(() => null)) ?? {}
+    const options = setConvertQueueOptions(body)
+    return c.json({ options, ok: true })
   })
 
   app.get('/api/admin/convert/needs', (c) => {
@@ -164,9 +190,6 @@ export function registerAdminConvertRoutes(app: Hono<Vars>): void {
   app.post('/api/admin/convert/enqueue', async (c) => {
     const denied = requireAdmin(c)
     if (denied) return denied
-    if (!localMediaEnabled() && !getConfig().localMediaRoot) {
-      // Still allow if files resolve as-is on disk
-    }
     const body =
       (await c.req
         .json<{
@@ -185,17 +208,24 @@ export function registerAdminConvertRoutes(app: Hono<Vars>): void {
     const errors: string[] = []
     for (const path of paths.slice(0, 100)) {
       try {
-        const { job, info } = await enqueueConvertForPath(path, {
+        const { job, info, options } = await enqueueConvertForPath(path, {
           mode: body.mode,
           replaceOriginal: body.replaceOriginal,
           deleteOriginal: body.deleteOriginal,
         })
-        jobs.push({ job: serializeConvertJob(job), info })
+        jobs.push({ job: serializeConvertJob(job), info, options })
       } catch (err) {
         errors.push(`${path}: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
-    return c.json({ enqueued: jobs.length, jobs, errors, stats: convertJobStats() })
+    return c.json({
+      enqueued: jobs.length,
+      jobs,
+      errors,
+      stats: convertJobStats(),
+      options: getConvertQueueOptions(),
+      localMediaEnabled: localMediaEnabled(),
+    })
   })
 
   app.post('/api/admin/convert/jobs/:id/cancel', (c) => {

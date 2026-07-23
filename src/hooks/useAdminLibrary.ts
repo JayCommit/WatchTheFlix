@@ -343,14 +343,22 @@ export function useAdminLibrary({ section, notify, onOverviewRefresh, onGoConver
 
   async function convertEnqueueFile(path: string) {
     try {
-      const res = await api.convertEnqueue({
-        path,
-        mode: 'auto',
-        replaceOriginal: true,
-        deleteOriginal: false,
-      })
+      // Omit mode/replace/delete so the server applies saved queue defaults.
+      const res = await api.convertEnqueue({ path })
       if (res.enqueued) {
-        notify('Queued convert (replace on, keep original)')
+        const opts = res.options
+        const mode = res.jobs[0]?.job?.mode
+        const bits = [
+          mode === 'remux' ? 'remux' : mode === 'transcode' ? 'transcode' : 'convert',
+          opts
+            ? opts.replaceOriginal
+              ? opts.deleteOriginal
+                ? 'replace + delete'
+                : 'replace, keep original'
+              : 'keep original + sibling MP4'
+            : null,
+        ].filter(Boolean)
+        notify(`Queued ${bits.join(' · ')}`)
         onGoConvert?.()
       } else {
         notify(res.errors[0] || 'Enqueue failed')

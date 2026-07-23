@@ -107,6 +107,15 @@ export type AdminTitle = Title & {
   }>
 }
 
+export type ConvertQueueMode = 'auto' | 'remux' | 'transcode'
+
+/** Persisted admin defaults for the convert queue. */
+export type ConvertQueueOptions = {
+  mode: ConvertQueueMode
+  replaceOriginal: boolean
+  deleteOriginal: boolean
+}
+
 export type ConvertJob = {
   id: number
   path: string
