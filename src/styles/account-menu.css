@@ -1,0 +1,143 @@
+/* —— Account menu —— */
+.account-menu {
+  position: relative;
+}
+
+.account-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.2rem 0.55rem 0.2rem 0.2rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.84rem;
+}
+
+.account-trigger:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.account-avatar {
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.account-avatar.sm {
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: 0.58rem;
+  border-radius: 6px;
+}
+
+.account-avatar.lg {
+  width: 2.4rem;
+  height: 2.4rem;
+  font-size: 0.85rem;
+  border-radius: 10px;
+}
+
+.account-caret {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+.account-dropdown {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  width: min(280px, calc(100vw - 2rem));
+  padding: 0.65rem;
+  border-radius: 14px;
+  border: 1px solid rgba(240, 243, 248, 0.12);
+  background: rgba(10, 12, 20, 0.96);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+  z-index: 60;
+  animation: rise 180ms ease both;
+}
+
+.account-dropdown-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.45rem 0.45rem 0.75rem;
+  border-bottom: 1px solid rgba(240, 243, 248, 0.08);
+  margin-bottom: 0.35rem;
+}
+
+.account-dropdown-head strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.account-dropdown-head .muted {
+  display: block;
+  font-size: 0.78rem;
+}
+
+.account-section-label {
+  margin: 0.35rem 0.45rem 0.2rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.account-profiles {
+  display: grid;
+  gap: 0.15rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid rgba(240, 243, 248, 0.08);
+  margin-bottom: 0.35rem;
+}
+
+.account-profile-item,
+.account-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.55rem 0.6rem;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.account-profile-item:hover,
+.account-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.account-profile-item.is-active {
+  background: rgba(255, 45, 85, 0.12);
+}
+
+.account-menu-actions {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.account-item.danger {
+  color: #ff8a9a;
+}
+

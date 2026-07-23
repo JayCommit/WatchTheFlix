@@ -1,0 +1,58 @@
+/* —— Buttons —— */
+.btn {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 0.72rem 1.25rem;
+  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition:
+    transform 180ms ease,
+    background 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+.btn-primary {
+  background: linear-gradient(180deg, var(--accent-hot), var(--accent));
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 8px 28px var(--accent-glow);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(180deg, #ff6280, var(--accent-hot));
+}
+
+.btn-ghost {
+  background: rgba(240, 243, 248, 0.06);
+  border-color: var(--line);
+  color: var(--text);
+  backdrop-filter: blur(8px);
+}
+
+.btn-ghost:hover {
+  background: rgba(240, 243, 248, 0.12);
+  border-color: rgba(240, 243, 248, 0.22);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.page {
+  padding: 0 0 5rem;
+}
+

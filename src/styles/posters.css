@@ -1,0 +1,189 @@
+/* —— Posters —— */
+.poster-card {
+  scroll-snap-align: start;
+  position: relative;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.poster-card-link {
+  display: block;
+  color: inherit;
+  cursor: pointer;
+}
+
+.poster-art {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-soft);
+  outline: 1px solid rgba(240, 243, 248, 0.06);
+  transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1), outline-color 240ms ease;
+}
+
+.poster-card:hover .poster-art,
+.poster-card:focus-within .poster-art {
+  transform: translateY(-6px) scale(1.04);
+  outline-color: rgba(255, 45, 85, 0.45);
+}
+
+.poster-dismiss {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  z-index: 3;
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(5, 6, 12, 0.78);
+  color: #fff;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 160ms ease, background 160ms ease;
+}
+
+.poster-card:hover .poster-dismiss,
+.poster-card:focus-within .poster-dismiss,
+.poster-dismiss:focus-visible {
+  opacity: 1;
+}
+
+.poster-dismiss:hover {
+  background: rgba(255, 45, 85, 0.9);
+}
+
+.poster-dismiss:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.poster-meta-link {
+  display: block;
+  color: inherit;
+}
+
+.poster-meta-link:hover strong {
+  color: var(--accent-hot);
+}
+
+.poster-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.poster-hover {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(180deg, rgba(5, 6, 12, 0.05), rgba(5, 6, 12, 0.72));
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.poster-card:hover .poster-hover,
+.poster-card:focus-within .poster-hover {
+  opacity: 1;
+}
+
+.poster-play {
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.92);
+  color: #05060c;
+  font-size: 0.85rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  transform: scale(0.9);
+  transition: transform 200ms ease;
+}
+
+.poster-card:hover .poster-play {
+  transform: scale(1);
+}
+
+.poster-rating {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 6px;
+  background: rgba(5, 6, 12, 0.72);
+  color: var(--cool);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.poster-fallback {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  text-align: center;
+  background: linear-gradient(160deg, #2a2118, #14110e 60%);
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+}
+
+.poster-meta {
+  margin-top: 0.55rem;
+}
+
+.poster-meta strong {
+  display: block;
+  font-size: 0.92rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.poster-meta span {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.progress-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.progress-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.poster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 1rem 0.85rem;
+}
+
+.search-results {
+  padding-top: 1.5rem;
+}
+
+.empty-inline {
+  padding: 2rem 0;
+  color: var(--text-muted);
+  display: grid;
+  gap: 1rem;
+  justify-items: start;
+}
+

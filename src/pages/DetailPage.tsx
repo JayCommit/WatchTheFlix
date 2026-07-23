@@ -1,28 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
-import { AccountMenu } from '../components/AccountMenu'
-import { MobileNav } from '../components/MobileNav'
+import { CinemaShell } from '../components/cinema'
+import { CastRow, EpisodeList, VersionList, type SeasonFilter } from '../components/detail'
 import { DetailSkeleton } from '../components/Skeleton'
-import { TopBar } from '../components/TopBar'
 import type { AuthUser, MediaFile, TitleDetail } from '../types'
-import { episodeLabel, formatBytes, formatTime, isLikelyUnsupported, sortMediaFiles } from '../utils/format'
+import { formatTime, sortMediaFiles } from '../utils/format'
+import { hasResume, playUrl } from '../utils/playUrl'
 
 type Props = {
   kind: 'movie' | 'tv'
   user: AuthUser
   onLogout: () => void
-}
-
-type SeasonFilter = number | 'all' | 'unknown'
-
-function playUrl(detail: TitleDetail, file: MediaFile, opts?: { fromStart?: boolean }): string {
-  const base = `/play?path=${encodeURIComponent(file.path)}&titleId=${detail.id}&kind=${detail.kind}`
-  return opts?.fromStart ? `${base}&t=0` : base
-}
-
-function hasResume(file: MediaFile | undefined): boolean {
-  return !!file?.progress && file.progress.position > 30
 }
 
 export function DetailPage({ kind, user, onLogout }: Props) {
@@ -186,8 +175,7 @@ export function DetailPage({ kind, user, onLogout }: Props) {
 
   if (error) {
     return (
-      <div className="app-shell page-enter has-mobile-nav">
-        <TopBar actions={<AccountMenu user={user} onLogout={onLogout} />} />
+      <CinemaShell user={user} onLogout={onLogout} className="page-enter">
         <div className="empty-state">
           <h2>Not found</h2>
           <p>{error}</p>
@@ -195,8 +183,7 @@ export function DetailPage({ kind, user, onLogout }: Props) {
             Back home
           </button>
         </div>
-        <MobileNav />
-      </div>
+      </CinemaShell>
     )
   }
 
@@ -210,16 +197,12 @@ export function DetailPage({ kind, user, onLogout }: Props) {
   }
 
   return (
-    <div className="app-shell detail-page page-enter has-mobile-nav">
-      <TopBar
-        actions={
-          <>
-            {flash ? <span className="muted scan-status hide-sm">{flash}</span> : null}
-            <AccountMenu user={user} onLogout={onLogout} />
-          </>
-        }
-      />
-
+    <CinemaShell
+      user={user}
+      onLogout={onLogout}
+      className="detail-page page-enter"
+      actionsExtra={flash ? <span className="muted scan-status hide-sm">{flash}</span> : null}
+    >
       <section className="detail-hero hero">
         <div
           className="hero-media"
@@ -304,22 +287,7 @@ export function DetailPage({ kind, user, onLogout }: Props) {
         </div>
       </section>
 
-      {cast.length > 0 ? (
-        <section className="section">
-          <div className="section-head">
-            <h2>Cast</h2>
-          </div>
-          <div className="cast-row">
-            {cast.map((m) => (
-              <div key={m.name + m.character} className="cast-card">
-                {m.profile ? <img src={m.profile} alt="" /> : <div className="cast-fallback" />}
-                <strong>{m.name}</strong>
-                <span className="muted">{m.character}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
+      <CastRow cast={cast} />
 
       {kind === 'tv' && healthStats && healthStats.expected > 0 ? (
         <section className="section">
@@ -347,163 +315,27 @@ export function DetailPage({ kind, user, onLogout }: Props) {
       ) : null}
 
       {kind === 'tv' ? (
-        <section className="section">
-          <div className="section-head">
-            <h2>Episodes</h2>
-            {seasons.length > 0 || hasUnknownSeason ? (
-              <label className="season-select">
-                <span className="sr-only">Season</span>
-                <select
-                  value={season === 'all' || season === 'unknown' ? season : String(season)}
-                  onChange={(e) => {
-                    const v = e.target.value
-                    if (v === 'all' || v === 'unknown') setSeason(v)
-                    else setSeason(Number(v))
-                  }}
-                >
-                  {(seasons.length > 1 || hasUnknownSeason) && (
-                    <option value="all">All seasons</option>
-                  )}
-                  {seasons.map((s) => (
-                    <option key={s} value={s}>
-                      Season {s}
-                    </option>
-                  ))}
-                  {hasUnknownSeason ? <option value="unknown">Unknown season</option> : null}
-                </select>
-              </label>
-            ) : null}
-          </div>
-          {episodes.length === 0 ? (
-            <div className="empty-inline">
-              <p>No episodes in this season.</p>
-            </div>
-          ) : (
-            <div className="episode-list" role="list">
-              {episodes.map((file) => {
-                const label = episodeLabel(file.season, file.episode)
-                const pct =
-                  file.progress && file.progress.duration > 0
-                    ? Math.min(100, (file.progress.position / file.progress.duration) * 100)
-                    : 0
-                const unsupported = isLikelyUnsupported(file.filename)
-                const versionCount = detail.files.filter(
-                  (f) => f.season === file.season && f.episode === file.episode,
-                ).length
-                return (
-                  <div key={file.path} className="episode-item" role="listitem">
-                    <button
-                      className="episode-item-main"
-                      type="button"
-                      onClick={() => navigate(playUrl(detail, file))}
-                    >
-                      <strong className="ep-code">{label}</strong>
-                      <div className="ep-body">
-                        <strong>
-                          {file.episodeName || file.filename}
-                          {file.label ? <span className="version-pill">{file.label}</span> : null}
-                          {file.preferred ? (
-                            <span className="version-pill preferred">Preferred</span>
-                          ) : null}
-                        </strong>
-                        <span>
-                          {hasResume(file)
-                            ? `Resume at ${formatTime(file.progress!.position)}`
-                            : unsupported
-                              ? 'May need a compatible codec in-browser'
-                              : 'Ready to stream'}
-                        </span>
-                        {pct > 0 ? (
-                          <div className="ep-progress" aria-hidden>
-                            <i style={{ width: `${pct}%` }} />
-                          </div>
-                        ) : null}
-                      </div>
-                      <span className="ep-cta">{hasResume(file) ? 'Resume' : 'Play'}</span>
-                    </button>
-                    {isAdmin && versionCount > 1 && !file.preferred ? (
-                      <div className="episode-item-actions">
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          type="button"
-                          disabled={preferring === file.path}
-                          onClick={() => void setPreferred(file)}
-                        >
-                          Prefer
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </section>
+        <EpisodeList
+          detail={detail}
+          episodes={episodes}
+          seasons={seasons}
+          hasUnknownSeason={hasUnknownSeason}
+          season={season}
+          onSeasonChange={setSeason}
+          isAdmin={isAdmin}
+          preferring={preferring}
+          onPrefer={(file) => void setPreferred(file)}
+          onPlay={(url) => navigate(url)}
+        />
       ) : (
-        <section className="section">
-          <div className="section-head">
-            <h2>{detail.files.length > 1 ? 'Versions' : 'File'}</h2>
-          </div>
-          <div className="episode-list" role="list">
-            {sortMediaFiles(detail.files).map((file) => {
-              const unsupported = isLikelyUnsupported(file.filename)
-              return (
-                <div key={file.path} className="episode-item" role="listitem">
-                  <button
-                    className="episode-item-main"
-                    type="button"
-                    onClick={() => navigate(playUrl(detail, file))}
-                  >
-                    <strong className="ep-code">File</strong>
-                    <div className="ep-body">
-                      <strong>
-                        {file.filename}
-                        {file.label ? <span className="version-pill">{file.label}</span> : null}
-                        {file.preferred ? (
-                          <span className="version-pill preferred">Preferred</span>
-                        ) : null}
-                      </strong>
-                      <span>
-                        {hasResume(file)
-                          ? `Resume at ${formatTime(file.progress!.position)}`
-                          : unsupported
-                            ? `${formatBytes(file.size)} · may not play in browser`
-                            : formatBytes(file.size)}
-                      </span>
-                      {file.progress && file.progress.duration > 0 ? (
-                        <div className="ep-progress" aria-hidden>
-                          <i
-                            style={{
-                              width: `${Math.min(
-                                100,
-                                (file.progress.position / file.progress.duration) * 100,
-                              )}%`,
-                            }}
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-                    <span className="ep-cta">{hasResume(file) ? 'Resume' : 'Play'}</span>
-                  </button>
-                  {isAdmin && detail.files.length > 1 && !file.preferred ? (
-                    <div className="episode-item-actions">
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        type="button"
-                        disabled={preferring === file.path}
-                        onClick={() => void setPreferred(file)}
-                      >
-                        Prefer
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              )
-            })}
-          </div>
-        </section>
+        <VersionList
+          detail={detail}
+          isAdmin={isAdmin}
+          preferring={preferring}
+          onPrefer={(file) => void setPreferred(file)}
+          onPlay={(url) => navigate(url)}
+        />
       )}
-      <MobileNav />
-    </div>
+    </CinemaShell>
   )
 }
