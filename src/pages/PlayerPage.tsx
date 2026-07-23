@@ -383,6 +383,11 @@ export function PlayerPage() {
     goNext,
     showHelp,
     setShowHelp,
+    showUpNext,
+    onDismissUpNext: () => {
+      upNextDismissedRef.current = true
+      setShowUpNext(false)
+    },
     navigate,
     backPath,
     saveProgress,
@@ -472,6 +477,7 @@ export function PlayerPage() {
         <button
           className="btn btn-ghost player-back"
           type="button"
+          aria-label="Back to title"
           onClick={() => {
             void saveProgress(true)
             navigate(backPath)

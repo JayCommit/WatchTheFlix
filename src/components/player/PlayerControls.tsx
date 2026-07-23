@@ -141,6 +141,11 @@ export function PlayerControls({
             className="time-readout time-toggle"
             type="button"
             title="Toggle remaining time"
+            aria-label={
+              showRemaining
+                ? `Elapsed ${formatTime(currentTime)}, remaining ${formatTime(Math.max(0, duration - currentTime))}. Click to show duration.`
+                : `Elapsed ${formatTime(currentTime)} of ${formatTime(duration)}. Click to show remaining.`
+            }
             onClick={() => {
               onToggleRemaining()
               onBumpChrome()

@@ -11,6 +11,19 @@ type Props = {
 }
 
 export function VersionList({ detail, isAdmin, preferring, onPrefer, onPlay }: Props) {
+  if (detail.files.length === 0) {
+    return (
+      <section className="section">
+        <div className="section-head">
+          <h2>File</h2>
+        </div>
+        <div className="empty-inline">
+          <p>No playable files for this title yet. Scan the library or rematch the path.</p>
+        </div>
+      </section>
+    )
+  }
+
   return (
     <section className="section">
       <div className="section-head">
@@ -19,6 +32,7 @@ export function VersionList({ detail, isAdmin, preferring, onPrefer, onPlay }: P
       <div className="episode-list" role="list">
         {sortMediaFiles(detail.files).map((file) => {
           const unsupported = isLikelyUnsupported(file.filename)
+          const resume = hasResume(file)
           return (
             <div key={file.path} className="episode-item" role="listitem">
               <button
@@ -36,7 +50,7 @@ export function VersionList({ detail, isAdmin, preferring, onPrefer, onPlay }: P
                     ) : null}
                   </strong>
                   <span>
-                    {hasResume(file)
+                    {resume
                       ? `Resume at ${formatTime(file.progress!.position)}`
                       : unsupported
                         ? `${formatBytes(file.size)} · may not play in browser`
@@ -55,18 +69,29 @@ export function VersionList({ detail, isAdmin, preferring, onPrefer, onPlay }: P
                     </div>
                   ) : null}
                 </div>
-                <span className="ep-cta">{hasResume(file) ? 'Resume' : 'Play'}</span>
+                <span className="ep-cta">{resume ? 'Resume' : 'Play'}</span>
               </button>
-              {isAdmin && detail.files.length > 1 && !file.preferred ? (
+              {(resume || (isAdmin && detail.files.length > 1 && !file.preferred)) ? (
                 <div className="episode-item-actions">
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    type="button"
-                    disabled={preferring === file.path}
-                    onClick={() => void onPrefer(file)}
-                  >
-                    Prefer
-                  </button>
+                  {resume ? (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      type="button"
+                      onClick={() => onPlay(playUrl(detail, file, { fromStart: true }))}
+                    >
+                      From start
+                    </button>
+                  ) : null}
+                  {isAdmin && detail.files.length > 1 && !file.preferred ? (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      type="button"
+                      disabled={preferring === file.path}
+                      onClick={() => void onPrefer(file)}
+                    >
+                      Prefer
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
             </div>

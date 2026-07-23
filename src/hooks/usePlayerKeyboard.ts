@@ -13,6 +13,8 @@ type UsePlayerKeyboardArgs = {
   goNext: () => void
   showHelp: boolean
   setShowHelp: Dispatch<SetStateAction<boolean>>
+  showUpNext: boolean
+  onDismissUpNext: () => void
   navigate: (path: string) => void
   backPath: string
   saveProgress: (force?: boolean) => void | Promise<void>
@@ -36,6 +38,8 @@ export function usePlayerKeyboard({
   goNext,
   showHelp,
   setShowHelp,
+  showUpNext,
+  onDismissUpNext,
   navigate,
   backPath,
   saveProgress,
@@ -128,6 +132,10 @@ export function usePlayerKeyboard({
           setShowHelp(false)
           return
         }
+        if (showUpNext) {
+          onDismissUpNext()
+          return
+        }
         if (document.fullscreenElement) {
           void document.exitFullscreen()
           return
@@ -150,6 +158,8 @@ export function usePlayerKeyboard({
     goNext,
     showHelp,
     setShowHelp,
+    showUpNext,
+    onDismissUpNext,
     navigate,
     backPath,
     saveProgress,

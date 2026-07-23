@@ -19,10 +19,12 @@ export function PlayerUpNext({
 }: PlayerUpNextProps) {
   const [left, setLeft] = useState<number | null>(null)
   const fired = useRef(false)
+  const playRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     fired.current = false
     setLeft(null)
+    playRef.current?.focus()
   }, [nextFile.path])
 
   useEffect(() => {
@@ -39,7 +41,7 @@ export function PlayerUpNext({
     left == null ? 0 : Math.min(100, ((AUTO_SECONDS - left) / AUTO_SECONDS) * 100)
 
   return (
-    <div className="up-next" role="dialog" aria-label="Up next">
+    <div className="up-next" role="dialog" aria-label="Up next" aria-modal="true">
       <div className="up-next-panel">
         <div className="up-next-head">
           <p className="muted">
@@ -56,7 +58,12 @@ export function PlayerUpNext({
           {nextFile.episodeName ? ` · ${nextFile.episodeName}` : ''}
         </h2>
         <div className="hero-actions">
-          <button className="btn btn-primary" type="button" onClick={onPlayNow}>
+          <button
+            ref={playRef}
+            className="btn btn-primary"
+            type="button"
+            onClick={onPlayNow}
+          >
             Play now
           </button>
           <button

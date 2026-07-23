@@ -60,6 +60,7 @@ export function AccountMenu({ user, onLogout, onScan, scanning }: Props) {
       <button
         type="button"
         className="account-trigger"
+        aria-label="Account menu"
         aria-expanded={open}
         aria-haspopup="menu"
         onClick={() => setOpen((v) => !v)}
