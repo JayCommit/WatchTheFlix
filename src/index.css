@@ -9,7 +9,9 @@
 @import './styles/player.css';
 @import './styles/skeletons.css';
 @import './styles/motion.css';
-@import './styles/admin.css';
+@import './styles/admin-layout.css';
+@import './styles/admin-tables.css';
+@import './styles/admin-convert.css';
 @import './styles/responsive.css';
 @import './styles/account-menu.css';
 @import './styles/profiles.css';

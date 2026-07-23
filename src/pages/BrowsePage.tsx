@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
-import { AccountMenu } from '../components/AccountMenu'
-import { MobileNav } from '../components/MobileNav'
+import { CinemaShell } from '../components/cinema'
 import { PosterCard } from '../components/PosterCard'
-import { TopBar } from '../components/TopBar'
+import { useLibraryScan } from '../hooks/useLibraryScan'
 import type { AuthUser, Title } from '../types'
 import { bindSlashToSearch } from '../utils/focusSearch'
 import { matchesQuery } from '../utils/titleSearch'
@@ -34,11 +33,24 @@ export function BrowsePage({ mode, user, onLogout }: Props) {
   const [items, setItems] = useState<Title[] | null>(null)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
-  const [scanning, setScanning] = useState(false)
   const [removingId, setRemovingId] = useState<number | null>(null)
 
   const genre = searchParams.get('genre') || 'all'
   const sort = parseSort(searchParams.get('sort'), mode)
+
+  async function reloadItems() {
+    if (mode === 'my-list') {
+      setItems((await api.watchlist()).items)
+      return
+    }
+    const lib = await api.library()
+    setItems(mode === 'movies' ? lib.movies : lib.shows)
+  }
+
+  const { scanning, onScan } = useLibraryScan({
+    enabled: user.role === 'admin',
+    onComplete: () => reloadItems(),
+  })
 
   useEffect(() => {
     let cancelled = false
@@ -116,20 +128,6 @@ export function BrowsePage({ mode, user, onLogout }: Props) {
     setSearchParams(nextParams, { replace: true })
   }
 
-  async function onScan() {
-    if (user.role !== 'admin') return
-    setScanning(true)
-    try {
-      await api.runScan()
-      const lib = await api.library()
-      setItems(mode === 'movies' ? lib.movies : mode === 'tv' ? lib.shows : (await api.watchlist()).items)
-    } catch {
-      /* ignore */
-    } finally {
-      setScanning(false)
-    }
-  }
-
   async function removeFromList(title: Title) {
     setRemovingId(title.id)
     try {
@@ -143,16 +141,18 @@ export function BrowsePage({ mode, user, onLogout }: Props) {
   }
 
   return (
-    <div className="app-shell page-enter has-mobile-nav">
-      <TopBar
-        showSearch
-        search={query}
-        onSearchChange={setQuery}
-        searchPlaceholder={`Search ${TITLES[mode].toLowerCase()}… (/)`}
-        navActive={mode === 'my-list' ? 'my-list' : mode}
-        actions={<AccountMenu user={user} onLogout={onLogout} onScan={() => void onScan()} scanning={scanning} />}
-      />
-
+    <CinemaShell
+      user={user}
+      onLogout={onLogout}
+      className="page-enter"
+      showSearch
+      search={query}
+      onSearchChange={setQuery}
+      searchPlaceholder={`Search ${TITLES[mode].toLowerCase()}… (/)`}
+      navActive={mode === 'my-list' ? 'my-list' : mode}
+      onScan={() => void onScan()}
+      scanning={scanning}
+    >
       <main className="page browse-page">
         <header className="browse-header">
           <div>
@@ -249,7 +249,6 @@ export function BrowsePage({ mode, user, onLogout }: Props) {
           </div>
         )}
       </main>
-      <MobileNav />
-    </div>
+    </CinemaShell>
   )
 }

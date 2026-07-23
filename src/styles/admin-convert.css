@@ -1,0 +1,158 @@
+/* --- Admin convert --- */
+
+.convert-progress-block {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+
+.convert-progress-block.compact {
+  margin-top: 0.55rem;
+}
+
+
+.convert-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+}
+
+
+.convert-progress-pct {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+
+.admin-progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(240, 243, 248, 0.08);
+  overflow: hidden;
+  border: 1px solid rgba(240, 243, 248, 0.06);
+}
+
+
+.admin-progress-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-hot));
+  border-radius: inherit;
+  transition: width 0.35s ease;
+}
+
+
+.admin-progress-bar.indeterminate i {
+  width: 40% !important;
+  animation: convert-bar-pulse 1.2s ease-in-out infinite;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 45, 85, 0.55),
+    var(--accent),
+    rgba(255, 45, 85, 0.55),
+    transparent
+  );
+}
+
+
+@keyframes convert-bar-pulse {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(280%);
+  }
+}
+
+
+.convert-path-line {
+  font-size: 0.78rem;
+  word-break: break-all;
+}
+
+
+.convert-path-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.55rem;
+  min-width: 0;
+}
+
+
+.convert-path-row .convert-path-line {
+  flex: 1;
+  min-width: 0;
+}
+
+
+.convert-title-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+
+.convert-title-link:hover strong {
+  color: var(--accent-hot);
+  text-decoration: underline;
+}
+
+
+.version-pill.preferred {
+  border-color: rgba(94, 234, 212, 0.45);
+  background: rgba(94, 234, 212, 0.12);
+  color: var(--cool);
+}
+
+
+.episode-item-actions {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+
+.login-hint {
+  margin: -0.25rem 0 0;
+  font-size: 0.82rem;
+}
+
+
+.convert-mode-hint {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+
+.convert-select-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+
+.admin-job-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem 0.75rem;
+}
+
+
+.admin-job-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}

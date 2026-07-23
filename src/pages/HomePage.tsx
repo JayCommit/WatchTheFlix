@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
-import { AccountMenu } from '../components/AccountMenu'
+import { CinemaShell } from '../components/cinema'
 import { Hero } from '../components/Hero'
-import { MobileNav } from '../components/MobileNav'
 import { PosterCard } from '../components/PosterCard'
 import { Row } from '../components/Row'
 import { HomeSkeleton } from '../components/Skeleton'
-import { TopBar } from '../components/TopBar'
+import { useLibraryScan } from '../hooks/useLibraryScan'
 import type { AuthUser, ContinueItem, LibraryResponse, Title } from '../types'
 import { bindSlashToSearch } from '../utils/focusSearch'
 import { episodeLabel } from '../utils/format'
@@ -42,8 +41,6 @@ export function HomePage({ user, onLogout }: Props) {
   const isAdmin = user.role === 'admin'
   const [data, setData] = useState<LibraryResponse | null>(null)
   const [error, setError] = useState('')
-  const [scanning, setScanning] = useState(false)
-  const [scanMsg, setScanMsg] = useState('')
   const [query, setQuery] = useState('')
   const [watchlist, setWatchlist] = useState<Title[]>([])
   const [heroWatchlistBusy, setHeroWatchlistBusy] = useState(false)
@@ -58,6 +55,11 @@ export function HomePage({ user, onLogout }: Props) {
       setError(err instanceof Error ? err.message : 'Failed to load library')
     }
   }
+
+  const { scanning, scanMsg, onScan } = useLibraryScan({
+    enabled: isAdmin,
+    onComplete: () => load(),
+  })
 
   useEffect(() => {
     void load()
@@ -148,46 +150,6 @@ export function HomePage({ user, onLogout }: Props) {
     return out.sort((a, b) => a.title.localeCompare(b.title))
   }, [data, q])
 
-  async function onScan() {
-    if (!isAdmin) return
-    setScanning(true)
-    setScanMsg('Starting library scan…')
-    try {
-      const result = await api.runScan((status) => {
-        const p = status.status
-        if (!p) return
-        const src = p.source === 'local' ? 'Local disk' : 'WebDAV'
-        if (p.phase === 'listing') {
-          setScanMsg(`${src}: listing folders… (${p.dirsScanned} scanned)`)
-        } else if (p.phase === 'matching') {
-          setScanMsg(
-            `${src}: matching ${p.processed}/${p.filesFound} · ${p.matched} matched`,
-          )
-        } else if (p.message) {
-          setScanMsg(p.message)
-        }
-      })
-      const errN = result.errors?.length ?? 0
-      if (result.warning) {
-        setScanMsg(result.warning + (errN ? ` (${errN} errors)` : ''))
-      } else if (errN) {
-        setScanMsg(
-          `Found ${result.filesFound} files · ${result.titles} titles · ${errN} errors`,
-        )
-      } else {
-        setScanMsg(
-          `Found ${result.filesFound} files under ${result.mediaRoot ?? 'media root'} · ${result.titles} titles` +
-            (result.source ? ` (${result.source})` : ''),
-        )
-      }
-      await load()
-    } catch (err) {
-      setScanMsg(err instanceof Error ? err.message : 'Scan failed')
-    } finally {
-      setScanning(false)
-    }
-  }
-
   async function toggleFeaturedWatchlist() {
     if (!featured || heroWatchlistBusy) return
     const next = !featuredOnList
@@ -230,10 +192,13 @@ export function HomePage({ user, onLogout }: Props) {
 
   if (error) {
     return (
-      <div className="app-shell page-enter has-mobile-nav">
-        <TopBar
-          actions={<AccountMenu user={user} onLogout={onLogout} onScan={() => void onScan()} scanning={scanning} />}
-        />
+      <CinemaShell
+        user={user}
+        onLogout={onLogout}
+        className="page-enter"
+        onScan={() => void onScan()}
+        scanning={scanning}
+      >
         <div className="empty-state">
           <h2>Couldn’t load library</h2>
           <p>{error}</p>
@@ -241,8 +206,7 @@ export function HomePage({ user, onLogout }: Props) {
             Try again
           </button>
         </div>
-        <MobileNav />
-      </div>
+      </CinemaShell>
     )
   }
 
@@ -253,25 +217,18 @@ export function HomePage({ user, onLogout }: Props) {
   const empty = data.counts.files === 0
 
   return (
-    <div className="app-shell page-enter has-mobile-nav">
-      <TopBar
-        showSearch={!empty}
-        search={query}
-        onSearchChange={setQuery}
-        navActive="home"
-        actions={
-          <>
-            {scanMsg ? <span className="muted scan-status hide-sm">{scanMsg}</span> : null}
-            <AccountMenu
-              user={user}
-              onLogout={onLogout}
-              onScan={() => void onScan()}
-              scanning={scanning}
-            />
-          </>
-        }
-      />
-
+    <CinemaShell
+      user={user}
+      onLogout={onLogout}
+      className="page-enter"
+      showSearch={!empty}
+      search={query}
+      onSearchChange={setQuery}
+      navActive="home"
+      actionsExtra={scanMsg ? <span className="muted scan-status hide-sm">{scanMsg}</span> : null}
+      onScan={() => void onScan()}
+      scanning={scanning}
+    >
       <main className="page">
         {empty ? (
           <div className="empty-state empty-state-hero">
@@ -474,7 +431,6 @@ export function HomePage({ user, onLogout }: Props) {
           </>
         )}
       </main>
-      <MobileNav />
-    </div>
+    </CinemaShell>
   )
 }
