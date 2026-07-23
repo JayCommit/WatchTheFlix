@@ -189,7 +189,9 @@ export function ConvertJobsList({
       </div>
 
       {empty ? (
-        <p className="muted">No convert jobs yet. Scan codecs, then queue files below.</p>
+        <p className="muted convert-jobs-empty">
+          Idle — queue files below. Active jobs stay pinned here with contained scrolling.
+        </p>
       ) : (
         <div className="convert-jobs-groups">
           {active.length ? (

@@ -29,13 +29,47 @@ export function ConvertOverview({
 
   return (
     <section className="admin-card convert-overview">
-      <div className="section-head">
-        <div className="convert-overview-heading">
-          <h2>Convert</h2>
-          <p className="muted convert-overview-lede">
-            Scan codecs, queue remux/transcode jobs, and keep incompatible files moving without
-            drowning the page.
-          </p>
+      <div className="section-head convert-overview-head">
+        <div className="convert-overview-stats">
+          <div className={`convert-stat${stats.running ? ' is-hot' : ''}`}>
+            <span className="convert-stat-label">Running</span>
+            <strong>{stats.running}</strong>
+          </div>
+          <div className={`convert-stat${stats.queued ? ' is-hot' : ''}`}>
+            <span className="convert-stat-label">Queued</span>
+            <strong>{stats.queued}</strong>
+          </div>
+          <div className="convert-stat">
+            <span className="convert-stat-label">Done</span>
+            <strong>{stats.done}</strong>
+          </div>
+          <div className={`convert-stat${stats.failed ? ' is-warn' : ''}`}>
+            <span className="convert-stat-label">Failed</span>
+            <strong>{stats.failed}</strong>
+          </div>
+          <div className={`convert-stat${needsTotal ? ' is-warn' : ''}`}>
+            <span className="convert-stat-label">Needs convert</span>
+            <strong>{needsTotal}</strong>
+          </div>
+          {coverage ? (
+            <>
+              <div className="convert-stat">
+                <span className="convert-stat-label">Probed</span>
+                <strong>
+                  {coverage.probed}
+                  <span className="muted convert-stat-sub">/{coverage.total}</span>
+                </strong>
+              </div>
+              <div className="convert-stat">
+                <span className="convert-stat-label">Direct</span>
+                <strong>{coverage.direct}</strong>
+              </div>
+              <div className={`convert-stat${coverage.unprobed ? ' is-muted-hot' : ''}`}>
+                <span className="convert-stat-label">Unprobed</span>
+                <strong>{coverage.unprobed}</strong>
+              </div>
+            </>
+          ) : null}
         </div>
         <div className="admin-actions">
           {probing ? (
@@ -70,48 +104,6 @@ export function ConvertOverview({
         </div>
       ) : null}
 
-      <div className="convert-overview-stats">
-        <div className={`convert-stat${stats.running ? ' is-hot' : ''}`}>
-          <span className="convert-stat-label">Running</span>
-          <strong>{stats.running}</strong>
-        </div>
-        <div className={`convert-stat${stats.queued ? ' is-hot' : ''}`}>
-          <span className="convert-stat-label">Queued</span>
-          <strong>{stats.queued}</strong>
-        </div>
-        <div className="convert-stat">
-          <span className="convert-stat-label">Done</span>
-          <strong>{stats.done}</strong>
-        </div>
-        <div className={`convert-stat${stats.failed ? ' is-warn' : ''}`}>
-          <span className="convert-stat-label">Failed</span>
-          <strong>{stats.failed}</strong>
-        </div>
-        <div className={`convert-stat${needsTotal ? ' is-warn' : ''}`}>
-          <span className="convert-stat-label">Needs convert</span>
-          <strong>{needsTotal}</strong>
-        </div>
-        {coverage ? (
-          <>
-            <div className="convert-stat">
-              <span className="convert-stat-label">Probed</span>
-              <strong>
-                {coverage.probed}
-                <span className="muted convert-stat-sub">/{coverage.total}</span>
-              </strong>
-            </div>
-            <div className="convert-stat">
-              <span className="convert-stat-label">Direct play</span>
-              <strong>{coverage.direct}</strong>
-            </div>
-            <div className={`convert-stat${coverage.unprobed ? ' is-muted-hot' : ''}`}>
-              <span className="convert-stat-label">Unprobed</span>
-              <strong>{coverage.unprobed}</strong>
-            </div>
-          </>
-        ) : null}
-      </div>
-
       {showProbeDetail ? (
         <div className="convert-progress-block compact">
           <div className="convert-progress-head">
@@ -128,7 +120,11 @@ export function ConvertOverview({
           >
             <i style={{ width: `${probePct}%` }} />
           </div>
-          <p className={probeStatus.phase === 'error' ? 'error-text convert-probe-msg' : 'muted convert-probe-msg'}>
+          <p
+            className={
+              probeStatus.phase === 'error' ? 'error-text convert-probe-msg' : 'muted convert-probe-msg'
+            }
+          >
             {probeStatus.message}
             {probeStatus.phase === 'running' && probeStatus.total
               ? ` · ${probeStatus.processed}/${probeStatus.total}`
@@ -138,12 +134,7 @@ export function ConvertOverview({
               : ''}
           </p>
         </div>
-      ) : (
-        <p className="muted convert-overview-hint">
-          Auto mode remuxes H.264 (fast stream-copy) and only transcodes when the video codec needs
-          it. Start with a codec scan before queuing.
-        </p>
-      )}
+      ) : null}
     </section>
   )
 }
