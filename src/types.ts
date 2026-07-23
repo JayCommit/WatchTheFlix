@@ -140,6 +140,7 @@ export type ConvertNeedsFile = {
   playbackMode: string | null
   canDirect: boolean | null
   probedAt: string | null
+  probeError: string | null
 }
 
 export type TmdbSearchResult = {

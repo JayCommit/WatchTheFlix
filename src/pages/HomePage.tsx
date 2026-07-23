@@ -30,9 +30,6 @@ export function HomePage({ user, onLogout }: Props) {
   const [query, setQuery] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [watchlist, setWatchlist] = useState<Title[]>([])
-  const [theme, setTheme] = useState(() =>
-    typeof document !== 'undefined' ? document.documentElement.dataset.theme || 'dark' : 'dark',
-  )
 
   async function load() {
     try {
@@ -157,26 +154,16 @@ export function HomePage({ user, onLogout }: Props) {
   const actions = (
     <>
       <ProfileSwitcher />
-      <button
-        className="btn btn-ghost hide-sm"
-        type="button"
-        title="Toggle light / dark"
-        onClick={() => {
-          const next = theme === 'light' ? 'dark' : 'light'
-          document.documentElement.dataset.theme = next
-          localStorage.setItem('wtf_theme', next)
-          setTheme(next)
-        }}
-      >
-        {theme === 'light' ? 'Dark' : 'Light'}
-      </button>
-      <span className="muted hide-sm user-chip">
+      <span className="user-chip hide-sm" title={user.username}>
+        <span className="user-chip-avatar" aria-hidden>
+          {user.username.slice(0, 1).toUpperCase()}
+        </span>
         {user.username}
         {isAdmin ? ' · admin' : ''}
       </span>
       {scanMsg ? <span className="muted scan-status hide-sm">{scanMsg}</span> : null}
       {isAdmin ? (
-        <Link className="topbar-manage hide-sm" to="/admin">
+        <Link className="topbar-link hide-sm" to="/admin">
           Manage
         </Link>
       ) : null}
@@ -187,7 +174,7 @@ export function HomePage({ user, onLogout }: Props) {
           disabled={scanning}
           onClick={() => void onScan()}
         >
-          {scanning ? 'Scanning…' : 'Scan library'}
+          {scanning ? 'Scanning…' : 'Scan'}
         </button>
       ) : null}
       <button className="btn btn-ghost hide-sm" type="button" onClick={() => void logout()}>
@@ -200,10 +187,16 @@ export function HomePage({ user, onLogout }: Props) {
         aria-label="Menu"
         onClick={() => setMenuOpen((v) => !v)}
       >
-        ☰
+        Menu
       </button>
       {menuOpen ? (
         <div className="mobile-menu">
+          <span className="user-chip">
+            <span className="user-chip-avatar" aria-hidden>
+              {user.username.slice(0, 1).toUpperCase()}
+            </span>
+            {user.username}
+          </span>
           {isAdmin ? (
             <Link className="btn btn-ghost" to="/admin" onClick={() => setMenuOpen(false)}>
               Manage
@@ -228,7 +221,7 @@ export function HomePage({ user, onLogout }: Props) {
         <TopBar
           actions={
             <>
-              <Link className="topbar-manage" to="/admin">
+              <Link className="topbar-link" to="/admin">
                 Manage
               </Link>
               <button className="btn btn-ghost" type="button" onClick={() => void logout()}>

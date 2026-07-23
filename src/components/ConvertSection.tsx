@@ -13,7 +13,12 @@ function SkeletonRows({ rows = 5 }: { rows?: number }) {
   )
 }
 
-function modeBadge(mode: string | null | undefined, canDirect: boolean | null | undefined) {
+function modeBadge(
+  mode: string | null | undefined,
+  canDirect: boolean | null | undefined,
+  probeError?: string | null,
+) {
+  if (probeError && !mode) return <span className="codec-badge bad">Probe failed</span>
   if (canDirect) return <span className="codec-badge ok">Direct</span>
   if (mode === 'remux') return <span className="codec-badge warn">Remux</span>
   if (mode === 'transcode') return <span className="codec-badge bad">Transcode</span>
@@ -63,7 +68,12 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
     setProbing(true)
     try {
       const res = await api.convertProbe({ limit: 40 })
-      notify(`Probed ${res.probed} files`)
+      const failed = res.results?.filter((r) => !r.ok).length ?? 0
+      notify(
+        failed
+          ? `Probed ${res.probed} files · ${failed} failed / unknown codecs`
+          : `Probed ${res.probed} files`,
+      )
       await refresh()
     } catch (err) {
       notify(err instanceof Error ? err.message : 'Probe failed')
@@ -266,7 +276,8 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
         </div>
         {needs.length === 0 ? (
           <p className="muted">
-            No incompatible files listed. Run <strong>Probe codecs</strong> to analyze MKV/AVI files.
+            No incompatible files listed. Run <strong>Probe codecs</strong> to analyze containers
+            (MKV/AVI/TS and anything that failed a previous probe).
           </p>
         ) : (
           <div className="admin-table-wrap">
@@ -303,8 +314,13 @@ export function ConvertSection({ notify }: { notify: (msg: string) => void }) {
                       <code>
                         {f.container || '?'} · {f.videoCodec || '?'} / {f.audioCodec || '?'}
                       </code>
+                      {f.probeError ? (
+                        <div className="error-text" style={{ fontSize: '0.78rem', marginTop: '0.25rem' }}>
+                          {f.probeError}
+                        </div>
+                      ) : null}
                     </td>
-                    <td>{modeBadge(f.playbackMode, f.canDirect)}</td>
+                    <td>{modeBadge(f.playbackMode, f.canDirect, f.probeError)}</td>
                     <td>
                       <button
                         className="btn btn-ghost btn-sm"

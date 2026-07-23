@@ -1136,8 +1136,26 @@ export function updateMediaProbe(
     canDirect?: boolean | null
     probeError?: string | null
     duration?: number | null
+    /** When true, only update error/canDirect fields — keep prior codec data. */
+    errorOnly?: boolean
   },
 ): void {
+  if (probe.errorOnly) {
+    db.prepare(`
+      UPDATE media_files SET
+        can_direct = ?,
+        probe_error = ?,
+        probed_at = ?
+      WHERE path = ?
+    `).run(
+      probe.canDirect == null ? 0 : probe.canDirect ? 1 : 0,
+      probe.probeError ?? null,
+      new Date().toISOString(),
+      path,
+    )
+    return
+  }
+
   db.prepare(`
     UPDATE media_files SET
       container = ?,
@@ -1338,8 +1356,19 @@ export function listFilesNeedingConvert(limit = 200): Array<
         AND (
           f.can_direct = 0
           OR f.playback_mode IN ('remux', 'transcode')
-          OR (f.probed_at IS NULL AND lower(f.filename) LIKE '%.mkv')
-          OR (f.probed_at IS NULL AND lower(f.filename) LIKE '%.avi')
+          OR f.probe_error IS NOT NULL
+          OR (f.probed_at IS NOT NULL AND f.video_codec IS NULL)
+          OR (
+            f.probed_at IS NULL AND (
+              lower(f.filename) LIKE '%.mkv'
+              OR lower(f.filename) LIKE '%.avi'
+              OR lower(f.filename) LIKE '%.ts'
+              OR lower(f.filename) LIKE '%.m2ts'
+              OR lower(f.filename) LIKE '%.mts'
+              OR lower(f.filename) LIKE '%.wmv'
+              OR lower(f.filename) LIKE '%.flv'
+            )
+          )
         )
       ORDER BY f.filename ASC
       LIMIT ?

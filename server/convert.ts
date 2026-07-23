@@ -71,9 +71,24 @@ async function probeLocalFile(localPath: string): Promise<{
       try {
         const raw = JSON.parse(stdout) as {
           format?: { duration?: string }
-          streams?: Array<{ codec_type?: string; codec_name?: string }>
+          streams?: Array<{
+            codec_type?: string
+            codec_name?: string
+            width?: number
+            height?: number
+            disposition?: { attached_pic?: number }
+          }>
         }
-        const video = raw.streams?.find((s) => s.codec_type === 'video')
+        const videos = (raw.streams ?? []).filter(
+          (s) =>
+            s.codec_type === 'video' &&
+            s.disposition?.attached_pic !== 1 &&
+            !['mjpeg', 'png', 'bmp'].includes((s.codec_name || '').toLowerCase()),
+        )
+        const video =
+          [...videos].sort(
+            (a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0),
+          )[0] ?? raw.streams?.find((s) => s.codec_type === 'video')
         const audio = raw.streams?.find((s) => s.codec_type === 'audio')
         resolve({
           duration: Number(raw.format?.duration || 0) || null,
@@ -147,6 +162,7 @@ async function processJob(job: ConvertJobRow): Promise<void> {
     )
   }
 
+  clearProbeCache(job.path)
   const info = await getStreamInfo(job.path)
   updateMediaProbe(job.path, {
     container: info.container,
@@ -154,8 +170,16 @@ async function processJob(job: ConvertJobRow): Promise<void> {
     audioCodec: info.audioCodec,
     playbackMode: info.mode,
     canDirect: info.canDirect,
+    probeError: info.probeFailed ? info.probeError || info.reason : null,
     duration: info.duration,
   })
+
+  if (info.probeFailed || !info.videoCodec) {
+    throw new Error(
+      info.probeError ||
+        'Could not detect video codec — check LOCAL_MEDIA_ROOT / file path, then Probe again',
+    )
+  }
 
   const mode: 'remux' | 'transcode' =
     job.mode === 'remux' || job.mode === 'transcode'
@@ -188,7 +212,15 @@ async function processJob(job: ConvertJobRow): Promise<void> {
   const { tempPath, finalLocal } = planConvertOutput(local)
   safeUnlink(tempPath)
 
-  const args = buildConvertFileArgs(local, tempPath, mode, info.audioCodec)
+  const args = buildConvertFileArgs(
+    local,
+    tempPath,
+    mode,
+    info.audioCodec,
+    0,
+    info.videoStreamIndex,
+    info.audioStreamIndex,
+  )
   await runFfmpegConvert(job.id, args, info.duration)
 
   if (cancelRequested.has(job.id)) throw new Error('Cancelled')

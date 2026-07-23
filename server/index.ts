@@ -80,6 +80,7 @@ import {
 } from './convert.ts'
 import { localMediaEnabled, probeLocalMedia } from './mediafs.ts'
 import {
+  clearProbeCache,
   ffmpegAvailable,
   resolvePlaybackMode,
   startCompatStream,
@@ -1195,10 +1196,14 @@ app.get('/api/stream', async (c) => {
           503,
         )
       }
+      const audioAbs =
+        info.audioTracks[audioIndex]?.streamIndex ?? info.audioStreamIndex ?? null
       const { response } = startCompatStream(path, info.mode, {
         startSeconds: Number.isFinite(startSeconds) ? startSeconds : 0,
         audioCodec,
         audioIndex,
+        videoStreamIndex: info.videoStreamIndex,
+        audioStreamIndex: audioAbs,
         signal: c.req.raw.signal,
       })
       // Header values must be ASCII ByteStrings
@@ -1354,6 +1359,7 @@ app.get('/api/admin/convert/needs', (c) => {
     playbackMode: f.playback_mode ?? null,
     canDirect: f.can_direct == null ? null : Boolean(f.can_direct),
     probedAt: f.probed_at ?? null,
+    probeError: f.probe_error ?? null,
   }))
   return c.json({ files, localMediaEnabled: localMediaEnabled() })
 })
@@ -1370,19 +1376,42 @@ app.post('/api/admin/convert/probe', async (c) => {
   const results = []
   for (const path of paths.slice(0, 80)) {
     try {
+      clearProbeCache(path)
       const info = await getStreamInfo(path)
+      if (info.probeFailed || !info.videoCodec) {
+        updateMediaProbe(path, {
+          container: info.container,
+          videoCodec: info.videoCodec,
+          audioCodec: info.audioCodec,
+          playbackMode: info.mode,
+          canDirect: false,
+          probeError: info.probeError || info.reason,
+          duration: info.duration,
+        })
+        results.push({
+          path,
+          ok: false,
+          error: info.probeError || info.reason,
+          container: info.container,
+          videoCodec: info.videoCodec,
+          audioCodec: info.audioCodec,
+          mode: info.mode,
+        })
+        continue
+      }
       updateMediaProbe(path, {
         container: info.container,
         videoCodec: info.videoCodec,
         audioCodec: info.audioCodec,
         playbackMode: info.mode,
         canDirect: info.canDirect,
+        probeError: null,
         duration: info.duration,
       })
       results.push({ path, ok: true, ...info })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      updateMediaProbe(path, { probeError: msg, canDirect: false })
+      updateMediaProbe(path, { probeError: msg, canDirect: false, errorOnly: true })
       results.push({ path, ok: false, error: msg })
     }
   }

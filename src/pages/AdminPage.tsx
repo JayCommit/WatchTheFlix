@@ -481,7 +481,7 @@ export function AdminPage({ user, onLogout }: Props) {
         actions={
           <>
             {flash ? <span className="muted scan-status hide-sm">{flash}</span> : null}
-            <Link className="btn btn-ghost" to="/">
+            <Link className="topbar-link" to="/">
               Library
             </Link>
             <button className="btn btn-ghost" type="button" onClick={() => void logout()}>

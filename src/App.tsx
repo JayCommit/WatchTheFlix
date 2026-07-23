@@ -12,11 +12,6 @@ export default function App() {
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined)
 
   useEffect(() => {
-    const theme = localStorage.getItem('wtf_theme') || 'dark'
-    document.documentElement.dataset.theme = theme
-  }, [])
-
-  useEffect(() => {
     api
       .me()
       .then((r) => setUser(r.authed && r.user ? r.user : null))

@@ -9,7 +9,10 @@ import { resolveLocalPath } from './mediafs.ts'
 export type PlaybackMode = 'direct' | 'remux' | 'transcode'
 
 export type AudioTrack = {
+  /** Relative index among audio tracks (0-based) — used by the UI. */
   index: number
+  /** Absolute ffmpeg stream index in the file. */
+  streamIndex: number
   codec: string | null
   language: string | null
   title: string | null
@@ -37,19 +40,31 @@ export type StreamInfo = {
   height: number | null
   reason: string
   canDirect: boolean
+  /** Absolute ffmpeg stream index for the primary video (skips cover art). */
+  videoStreamIndex: number | null
+  /** Absolute ffmpeg stream index for default/first audio track. */
+  audioStreamIndex: number | null
   audioTracks: AudioTrack[]
   subtitleTracks: SubtitleTrack[]
   hwEncoder: string | null
+  /** True when ffprobe failed and mode is an extension-based guess. */
+  probeFailed?: boolean
+  probeError?: string | null
 }
 
 type ProbeStream = {
   index?: number
   codec_type?: string
   codec_name?: string
+  codec_tag_string?: string
   width?: number
   height?: number
   channels?: number
   duration?: string
+  disposition?: {
+    attached_pic?: number
+    still_image?: number
+  }
   tags?: Record<string, string>
 }
 
@@ -65,10 +80,14 @@ const probeCache = new Map<string, { at: number; info: StreamInfo; raw: ProbeRes
 const CACHE_MS = 10 * 60 * 1000
 
 const DIRECT_CONTAINERS = new Set(['mp4', 'm4v', 'mov', 'webm'])
-const DIRECT_VIDEO = new Set(['h264', 'avc', 'vp8', 'vp9', 'av1'])
-const DIRECT_AUDIO = new Set(['aac', 'mp3', 'opus', 'vorbis', 'flac'])
-const COPY_VIDEO = new Set(['h264', 'avc', 'mpeg4'])
+/** Codecs browsers can usually decode when the container is also direct-friendly. */
+const DIRECT_VIDEO = new Set(['h264', 'vp8', 'vp9', 'av1'])
+const DIRECT_AUDIO = new Set(['aac', 'mp3', 'opus', 'vorbis'])
+/** Video codecs safe to remux (stream-copy) into MP4 for browsers. */
+const COPY_VIDEO = new Set(['h264'])
 const COPY_AUDIO = new Set(['aac', 'mp3'])
+/** Image / cover codecs that must never be treated as the main video track. */
+const COVER_CODECS = new Set(['mjpeg', 'jpeg', 'png', 'bmp', 'gif', 'webp'])
 
 export function binFfmpeg(): string {
   if (process.env.FFMPEG_PATH && existsSync(process.env.FFMPEG_PATH)) {
@@ -111,26 +130,79 @@ export function webdavHttpUrl(path: string): { url: string; authHeader: string }
   }
 }
 
-function normalizeCodec(name?: string | null): string | null {
-  if (!name) return null
-  const n = name.toLowerCase()
-  if (n === 'avc1' || n === 'avc') return 'h264'
-  if (n === 'hev1' || n === 'h265') return 'hevc'
-  return n
+function normalizeCodec(name?: string | null, tag?: string | null): string | null {
+  if (!name && !tag) return null
+  const n = (name || tag || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  if (!n) return null
+
+  // H.264 family
+  if (n === 'h264' || n === 'avc' || n === 'avc1' || n === 'avc3' || n === 'x264') return 'h264'
+  // HEVC / H.265
+  if (n === 'hevc' || n === 'h265' || n === 'hev1' || n === 'hvc1' || n === 'x265') return 'hevc'
+  // MPEG-4 Part 2 (XviD / DivX) — not the same as H.264
+  if (n === 'mpeg4' || n === 'mp4v' || n === 'xvid' || n === 'divx') return 'mpeg4'
+  // Audio aliases
+  if (n === 'aac' || n === 'mp4a') return 'aac'
+  if (n === 'mp3' || n === 'mp3float') return 'mp3'
+  if (n === 'ac3') return 'ac3'
+  if (n === 'eac3' || n === 'ec3') return 'eac3'
+  if (n === 'dts' || n === 'dca') return 'dts'
+  if (n === 'truehd' || n === 'mlp') return 'truehd'
+  if (n === 'pcm' || n.startsWith('pcm')) return 'pcm'
+  if (n === 'flac') return 'flac'
+  if (n === 'opus') return 'opus'
+  if (n === 'vorbis') return 'vorbis'
+  if (n === 'vp8' || n === 'vp9' || n === 'av1') return n
+  if (COVER_CODECS.has(n)) return n
+  return (name || tag || '').toLowerCase()
 }
 
 function containerFromFormat(formatName?: string, filename?: string): string | null {
   if (formatName) {
     const parts = formatName.split(',').map((s) => s.trim().toLowerCase())
     if (parts.some((p) => p.includes('matroska') || p === 'mkv')) return 'mkv'
-    if (parts.some((p) => p === 'mp4' || p === 'mov' || p === 'isom')) return 'mp4'
+    if (parts.some((p) => p === 'mp4' || p === 'mov' || p === 'isom' || p === 'm4v' || p === '3gp')) {
+      return 'mp4'
+    }
     if (parts.some((p) => p === 'webm')) return 'webm'
     if (parts.some((p) => p === 'avi')) return 'avi'
-    if (parts.some((p) => p === 'mpegts' || p === 'mpeg')) return 'mpegts'
+    if (parts.some((p) => p === 'mpegts' || p === 'mpeg' || p === 'm2ts' || p === 'mts')) {
+      return 'mpegts'
+    }
+    if (parts.some((p) => p === 'flv')) return 'flv'
+    if (parts.some((p) => p === 'asf' || p === 'wmv')) return 'wmv'
     return parts[0] ?? null
   }
   const ext = filename?.split('.').pop()?.toLowerCase()
+  if (ext === 'm4v' || ext === 'mov') return 'mp4'
+  if (ext === 'm2ts' || ext === 'mts' || ext === 'ts') return 'mpegts'
   return ext ?? null
+}
+
+function isCoverStream(s: ProbeStream): boolean {
+  if (s.disposition?.attached_pic === 1 || s.disposition?.still_image === 1) return true
+  const codec = normalizeCodec(s.codec_name, s.codec_tag_string)
+  if (!codec || !COVER_CODECS.has(codec)) return false
+  // Tiny or missing dimensions = cover / thumbnail, not the film
+  const w = s.width ?? 0
+  const h = s.height ?? 0
+  if (w > 0 && h > 0 && w * h >= 320 * 240) return false
+  return true
+}
+
+/** Prefer the real movie/episode video track over embedded cover art. */
+function pickPrimaryVideo(streams: ProbeStream[]): ProbeStream | undefined {
+  const videos = streams.filter((s) => s.codec_type === 'video' && !isCoverStream(s))
+  if (!videos.length) {
+    // Last resort: any video that isn't explicitly attached_pic
+    return streams.find(
+      (s) =>
+        s.codec_type === 'video' &&
+        s.disposition?.attached_pic !== 1 &&
+        s.disposition?.still_image !== 1,
+    )
+  }
+  return [...videos].sort((a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0))[0]
 }
 
 function decideMode(
@@ -142,8 +214,25 @@ function decideMode(
   const v = video ?? ''
   const a = audio ?? ''
 
-  const containerOk = DIRECT_CONTAINERS.has(c) || c === 'mov'
+  if (!v) {
+    return {
+      mode: 'transcode',
+      reason: 'No primary video stream detected — needs re-encode or re-probe',
+      canDirect: false,
+    }
+  }
+
+  if (COVER_CODECS.has(v)) {
+    return {
+      mode: 'transcode',
+      reason: `Detected ${v} as video (likely cover art) — re-probe or convert required`,
+      canDirect: false,
+    }
+  }
+
+  const containerOk = DIRECT_CONTAINERS.has(c)
   const videoOk = DIRECT_VIDEO.has(v)
+  // FLAC/PCM inside MP4 is rarely browser-safe even when tagged "direct"
   const audioOk = !a || DIRECT_AUDIO.has(a)
   const canDirect = containerOk && videoOk && audioOk
 
@@ -154,29 +243,30 @@ function decideMode(
   if (!ffmpegAvailable()) {
     return {
       mode: 'direct',
-      reason: 'FFmpeg unavailable — attempting direct play (may fail for MKV/AVI)',
+      reason: 'FFmpeg unavailable — attempting direct play (may fail)',
       canDirect: false,
     }
   }
 
+  // Remux only when video can be stream-copied into MP4 (H.264). HEVC/AV1/MPEG-4/etc → transcode.
   if (COPY_VIDEO.has(v)) {
     if (COPY_AUDIO.has(a) || !a) {
       return {
         mode: 'remux',
-        reason: `${c || 'container'} to MP4 remux (copy, no quality loss)`,
+        reason: `${c || 'container'} → MP4 remux (H.264 copy${a ? `, ${a} copy` : ''})`,
         canDirect: false,
       }
     }
     return {
       mode: 'remux',
-      reason: `${c || 'container'} to MP4 (video copy, audio to AAC)`,
+      reason: `${c || 'container'} → MP4 (H.264 copy, ${a || 'audio'} → AAC)`,
       canDirect: false,
     }
   }
 
   return {
     mode: 'transcode',
-    reason: `${v || 'video'}/${a || 'audio'} to H.264 + AAC for browser playback`,
+    reason: `${v || 'video'}/${a || 'audio'} in ${c || 'unknown'} → H.264 + AAC`,
     canDirect: false,
   }
 }
@@ -218,7 +308,19 @@ function videoEncodeArgs(mode: 'remux' | 'transcode'): string[] {
 
 async function runFfprobe(path: string): Promise<ProbeResult> {
   const local = resolveLocalPath(path)
-  const args = ['-v', 'error', '-show_format', '-show_streams', '-of', 'json']
+  // Larger probe window helps Matroska / MPEG-TS where codecs aren't in the first packets
+  const args = [
+    '-v',
+    'error',
+    '-probesize',
+    '50M',
+    '-analyzeduration',
+    '50M',
+    '-show_format',
+    '-show_streams',
+    '-of',
+    'json',
+  ]
 
   if (local) {
     args.push(local)
@@ -278,13 +380,14 @@ export async function getStreamInfo(path: string): Promise<StreamInfo> {
   try {
     const raw = await runFfprobe(path)
     const streams = raw.streams ?? []
-    const video = streams.find((s) => s.codec_type === 'video')
+    const video = pickPrimaryVideo(streams)
     const audioStreams = streams.filter((s) => s.codec_type === 'audio')
     const subStreams = streams.filter((s) => s.codec_type === 'subtitle')
 
     const audioTracks: AudioTrack[] = audioStreams.map((s, i) => ({
       index: i,
-      codec: normalizeCodec(s.codec_name),
+      streamIndex: typeof s.index === 'number' ? s.index : i,
+      codec: normalizeCodec(s.codec_name, s.codec_tag_string),
       language: tagLang(s.tags),
       title: tagTitle(s.tags),
       channels: s.channels ?? null,
@@ -292,18 +395,50 @@ export async function getStreamInfo(path: string): Promise<StreamInfo> {
 
     const subtitleTracks: SubtitleTrack[] = subStreams.map((s, i) => ({
       index: i,
-      codec: normalizeCodec(s.codec_name),
+      codec: normalizeCodec(s.codec_name, s.codec_tag_string),
       language: tagLang(s.tags),
       title: tagTitle(s.tags),
       kind: 'embedded' as const,
     }))
 
-    const videoCodec = normalizeCodec(video?.codec_name)
+    const videoCodec = normalizeCodec(video?.codec_name, video?.codec_tag_string)
     const audioCodec = audioTracks[0]?.codec ?? null
     const container = containerFromFormat(raw.format?.format_name, filename)
     const duration = Number(raw.format?.duration || video?.duration || 0) || null
     const decided = decideMode(container, videoCodec, audioCodec)
     const hw = resolveHwEncoder()
+    const videoStreamIndex =
+      typeof video?.index === 'number' && Number.isFinite(video.index) ? video.index : null
+    const firstAudio = audioStreams[0]
+    const audioStreamIndex =
+      typeof firstAudio?.index === 'number' && Number.isFinite(firstAudio.index)
+        ? firstAudio.index
+        : null
+
+    if (!videoCodec) {
+      const info: StreamInfo = {
+        mode: 'transcode',
+        ffmpegAvailable: hasFf,
+        container,
+        videoCodec: null,
+        audioCodec,
+        duration,
+        width: video?.width ?? null,
+        height: video?.height ?? null,
+        reason: 'ffprobe returned no usable video codec — file may be corrupt or need a deeper probe',
+        canDirect: false,
+        videoStreamIndex,
+        audioStreamIndex,
+        audioTracks,
+        subtitleTracks,
+        hwEncoder: hasFf ? hw : null,
+        probeFailed: true,
+        probeError: 'No video codec in probe result',
+      }
+      // Don't cache soft-failures for long — allow retry after disk/path fixes
+      probeCache.set(path, { at: Date.now() - CACHE_MS + 30_000, info, raw })
+      return info
+    }
 
     const info: StreamInfo = {
       mode: decided.mode,
@@ -316,32 +451,45 @@ export async function getStreamInfo(path: string): Promise<StreamInfo> {
       height: video?.height ?? null,
       reason: decided.reason,
       canDirect: decided.canDirect,
+      videoStreamIndex,
+      audioStreamIndex,
       audioTracks,
       subtitleTracks,
       hwEncoder: decided.mode === 'transcode' ? hw : null,
+      probeFailed: false,
+      probeError: null,
     }
     probeCache.set(path, { at: Date.now(), info, raw })
     return info
   } catch (err) {
     const ext = filename.split('.').pop()?.toLowerCase() ?? ''
-    const likelyNeedsRemux = ['mkv', 'avi', 'ts', 'm2ts', 'wmv', 'flv'].includes(ext)
+    const container = containerFromFormat(undefined, filename)
+    const msg = err instanceof Error ? err.message : 'Probe failed'
+    // Guess conservatively for convert UI — never claim Direct without a real probe
+    const guessMode: PlaybackMode =
+      hasFf && ['mkv', 'avi', 'ts', 'm2ts', 'mts', 'wmv', 'flv', 'mpegts'].includes(ext)
+        ? 'transcode'
+        : hasFf
+          ? 'transcode'
+          : 'direct'
     const info: StreamInfo = {
-      mode: hasFf && likelyNeedsRemux ? 'remux' : 'direct',
+      mode: guessMode,
       ffmpegAvailable: hasFf,
-      container: ext || null,
+      container,
       videoCodec: null,
       audioCodec: null,
       duration: null,
       width: null,
       height: null,
-      reason:
-        err instanceof Error
-          ? `Probe failed (${err.message}); falling back to ${hasFf && likelyNeedsRemux ? 'remux' : 'direct'}`
-          : 'Probe failed',
-      canDirect: !likelyNeedsRemux,
+      reason: `Probe failed (${msg}) — codecs unknown; treating as needs convert`,
+      canDirect: false,
+      videoStreamIndex: null,
+      audioStreamIndex: null,
       audioTracks: [],
       subtitleTracks: [],
       hwEncoder: null,
+      probeFailed: true,
+      probeError: msg,
     }
     return info
   }
@@ -360,15 +508,29 @@ function addInputArgs(args: string[], path: string): void {
 function codecArgs(
   mode: 'remux' | 'transcode',
   audioCodec: string | null,
-  audioIndex: number,
+  opts: {
+    /** Absolute stream index of primary video (preferred). */
+    videoStreamIndex?: number | null
+    /** Relative audio track index among audio streams (0-based). */
+    audioIndex?: number
+    /** Absolute stream index of chosen audio (preferred when known). */
+    audioStreamIndex?: number | null
+  },
 ): string[] {
-  const idx = Math.max(0, audioIndex)
-  const map = ['-map', '0:v:0', '-map', `0:a:${idx}`]
+  const audioRel = Math.max(0, opts.audioIndex ?? 0)
+  const vMap =
+    opts.videoStreamIndex != null && opts.videoStreamIndex >= 0
+      ? ['-map', `0:${opts.videoStreamIndex}`]
+      : ['-map', '0:v:0']
+  const aMap =
+    opts.audioStreamIndex != null && opts.audioStreamIndex >= 0
+      ? ['-map', `0:${opts.audioStreamIndex}`]
+      : ['-map', `0:a:${audioRel}`]
   const audio =
     mode === 'remux' && audioCodec && COPY_AUDIO.has(audioCodec)
       ? ['-c:a', 'copy']
       : ['-c:a', 'aac', '-ac', '2', '-b:a', '192k']
-  return [...map, ...videoEncodeArgs(mode), ...audio]
+  return [...vMap, ...aMap, ...videoEncodeArgs(mode), ...audio]
 }
 
 function buildFfmpegArgs(
@@ -377,6 +539,8 @@ function buildFfmpegArgs(
   startSeconds: number,
   audioCodec: string | null,
   audioIndex: number,
+  videoStreamIndex: number | null,
+  audioStreamIndex: number | null,
 ): string[] {
   const args: string[] = ['-hide_banner', '-loglevel', 'error']
 
@@ -386,7 +550,13 @@ function buildFfmpegArgs(
 
   args.push(...preInputHwArgs(mode))
   addInputArgs(args, path)
-  args.push(...codecArgs(mode, audioCodec, audioIndex))
+  args.push(
+    ...codecArgs(mode, audioCodec, {
+      videoStreamIndex,
+      audioIndex,
+      audioStreamIndex: audioIndex === 0 ? audioStreamIndex : null,
+    }),
+  )
   args.push(
     '-movflags',
     'frag_keyframe+empty_moov+default_base_moof',
@@ -404,6 +574,8 @@ export function buildConvertFileArgs(
   mode: 'remux' | 'transcode',
   audioCodec: string | null,
   audioIndex = 0,
+  videoStreamIndex: number | null = null,
+  audioStreamIndex: number | null = null,
 ): string[] {
   return [
     '-hide_banner',
@@ -411,7 +583,11 @@ export function buildConvertFileArgs(
     ...preInputHwArgs(mode),
     '-i',
     sourceLocal,
-    ...codecArgs(mode, audioCodec, audioIndex),
+    ...codecArgs(mode, audioCodec, {
+      videoStreamIndex,
+      audioIndex,
+      audioStreamIndex: audioIndex === 0 ? audioStreamIndex : null,
+    }),
     '-movflags',
     '+faststart',
     '-f',
@@ -427,6 +603,8 @@ export function startCompatStream(
     startSeconds?: number
     audioCodec?: string | null
     audioIndex?: number
+    videoStreamIndex?: number | null
+    audioStreamIndex?: number | null
     signal?: AbortSignal
   },
 ): { response: Response; proc: ChildProcess } {
@@ -437,6 +615,8 @@ export function startCompatStream(
     startSeconds,
     opts.audioCodec ?? null,
     opts.audioIndex ?? 0,
+    opts.videoStreamIndex ?? null,
+    opts.audioStreamIndex ?? null,
   )
   const proc = spawn(binFfmpeg(), args, {
     windowsHide: true,
