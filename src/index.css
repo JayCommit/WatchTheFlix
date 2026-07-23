@@ -2168,6 +2168,21 @@ img {
   display: inline-flex;
 }
 
+.login-switch {
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}
+
+button.linkish {
+  background: none;
+  border: none;
+  color: var(--amber, #e8a54b);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
 :root[data-theme='light'] {
   --bg: #f3efe6;
   --bg-elev: #fffdf8;

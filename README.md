@@ -4,7 +4,7 @@ Lightweight cinematic UI for your seedbox. Scans media over **SFTPGo WebDAV**, e
 
 ## Features
 
-- Password-gated library UI
+- Per-user accounts (first user = admin; Manage → Users for invites/roles)
 - WebDAV scan of movies / TV (filename parsing for `Movie.Name.2023` and `Show.S01E02`)
 - TMDB posters, backdrops, overviews
 - Direct / remux / live-transcode streaming
@@ -22,7 +22,9 @@ Lightweight cinematic UI for your seedbox. Scans media over **SFTPGo WebDAV**, e
 
 - Copy `.env.example` → `.env` and fill real values locally. **Never commit `.env`.**
 - `.gitignore` blocks env files, keys/certs, SQLite under `data/`, and convert temp/originals.
-- Change `APP_PASSWORD` and `SESSION_SECRET` before any shared/public deploy.
+- Set a strong `SESSION_SECRET` before any shared/public deploy.
+- **Accounts:** first signup becomes **admin**; later accounts are **users** unless an admin promotes them. Passwords use scrypt; sessions are HMAC-signed and expire.
+- Admin APIs (scan, convert, rematch, user management) require the `admin` role.
 - Prefer HTTPS for SFTPGo WebDAV so credentials and streams stay encrypted.
 
 ## Setup
@@ -39,8 +41,8 @@ cp .env.example .env
 | `SFTPGO_USER` / `SFTPGO_PASSWORD` | SFTPGo credentials |
 | `MEDIA_ROOT` | Optional subfolder to scan (`/` = whole account) |
 | `TMDB_API_KEY` | TMDB v3 API key |
-| `APP_PASSWORD` | Password to open the UI |
-| `SESSION_SECRET` | Long random string for session cookies |
+| `SESSION_SECRET` | Long random string for signed session cookies |
+| `ALLOW_PUBLIC_REGISTRATION` | Allow self-signup as `user` after first admin exists |
 | `PORT` | Server port (default `8787`) |
 | `LOCAL_MEDIA_ROOT` | Local mount for convert + disk streaming (e.g. `/media`) |
 | `MEDIA_ROOTS` | Optional comma-separated WebDAV roots (Movies/TV/Anime) |
@@ -113,10 +115,10 @@ See `deploy/nginx.example.conf` for a reverse-proxy snippet (Range / long timeou
 
 ## Usage
 
-1. Log in with `APP_PASSWORD`
-2. Click **Scan library** (or set `SCAN_INTERVAL_MINUTES`)
-3. Browse rows, open a title, hit Play — pick audio/subs in the player
-4. Use profiles + watchlist on the home screen; Admin Convert for permanent browser copies
+1. Open the app and **create the first admin account**
+2. Admin: **Scan library** (or set `SCAN_INTERVAL_MINUTES`)
+3. Browse, play, pick audio/subs; use watchlist / profiles
+4. Admin → **Users** to add accounts or promote admins; **Convert** for permanent browser copies
 
 ## Project layout
 

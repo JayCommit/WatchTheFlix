@@ -7,12 +7,11 @@ import { ProfileSwitcher } from '../components/ProfileSwitcher'
 import { Row } from '../components/Row'
 import { HomeSkeleton } from '../components/Skeleton'
 import { TopBar } from '../components/TopBar'
-import type { LibraryResponse, Title } from '../types'
+import type { AuthUser, LibraryResponse, Title } from '../types'
 import { episodeLabel } from '../utils/format'
 
-type Diagnostics = Awaited<ReturnType<typeof api.diagnostics>>
-
 type Props = {
+  user: AuthUser
   onLogout: () => void
 }
 
@@ -22,13 +21,12 @@ function matchesQuery(title: Title, q: string): boolean {
   return hay.includes(q)
 }
 
-export function HomePage({ onLogout }: Props) {
+export function HomePage({ user, onLogout }: Props) {
+  const isAdmin = user.role === 'admin'
   const [data, setData] = useState<LibraryResponse | null>(null)
   const [error, setError] = useState('')
   const [scanning, setScanning] = useState(false)
   const [scanMsg, setScanMsg] = useState('')
-  const [diag, setDiag] = useState<Diagnostics | null>(null)
-  const [diagError, setDiagError] = useState('')
   const [query, setQuery] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [watchlist, setWatchlist] = useState<Title[]>([])
@@ -43,16 +41,6 @@ export function HomePage({ onLogout }: Props) {
     }
   }
 
-  async function loadDiagnostics() {
-    try {
-      const d = await api.diagnostics()
-      setDiag(d)
-      setDiagError('')
-    } catch (err) {
-      setDiagError(err instanceof Error ? err.message : 'Diagnostics failed')
-    }
-  }
-
   useEffect(() => {
     void load()
     void api
@@ -60,12 +48,6 @@ export function HomePage({ onLogout }: Props) {
       .then((r) => setWatchlist(r.items))
       .catch(() => undefined)
   }, [])
-
-  useEffect(() => {
-    if (data && data.counts.files === 0) {
-      void loadDiagnostics()
-    }
-  }, [data])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -124,11 +106,11 @@ export function HomePage({ onLogout }: Props) {
   }, [data, q])
 
   async function onScan() {
+    if (!isAdmin) return
     setScanning(true)
     setScanMsg('Connecting to WebDAV and listing files… this can take a few minutes for large libraries.')
     setMenuOpen(false)
     try {
-      await loadDiagnostics()
       const result = await api.scan()
       if (result.warning) {
         setScanMsg(result.warning)
@@ -144,7 +126,6 @@ export function HomePage({ onLogout }: Props) {
       await load()
     } catch (err) {
       setScanMsg(err instanceof Error ? err.message : 'Scan failed')
-      void loadDiagnostics()
     } finally {
       setScanning(false)
     }
@@ -170,13 +151,26 @@ export function HomePage({ onLogout }: Props) {
       >
         Theme
       </button>
+      <span className="muted hide-sm" style={{ fontSize: '0.85rem' }}>
+        {user.username}
+        {isAdmin ? ' · admin' : ''}
+      </span>
       {scanMsg ? <span className="muted scan-status hide-sm">{scanMsg}</span> : null}
-      <Link className="topbar-manage hide-sm" to="/admin">
-        Manage
-      </Link>
-      <button className="btn btn-ghost hide-sm" type="button" disabled={scanning} onClick={() => void onScan()}>
-        {scanning ? 'Scanning…' : 'Scan library'}
-      </button>
+      {isAdmin ? (
+        <Link className="topbar-manage hide-sm" to="/admin">
+          Manage
+        </Link>
+      ) : null}
+      {isAdmin ? (
+        <button
+          className="btn btn-ghost hide-sm"
+          type="button"
+          disabled={scanning}
+          onClick={() => void onScan()}
+        >
+          {scanning ? 'Scanning…' : 'Scan library'}
+        </button>
+      ) : null}
       <button className="btn btn-ghost hide-sm" type="button" onClick={() => void logout()}>
         Log out
       </button>
@@ -191,12 +185,16 @@ export function HomePage({ onLogout }: Props) {
       </button>
       {menuOpen ? (
         <div className="mobile-menu">
-          <Link className="btn btn-ghost" to="/admin" onClick={() => setMenuOpen(false)}>
-            Manage
-          </Link>
-          <button className="btn btn-ghost" type="button" disabled={scanning} onClick={() => void onScan()}>
-            {scanning ? 'Scanning…' : 'Scan library'}
-          </button>
+          {isAdmin ? (
+            <Link className="btn btn-ghost" to="/admin" onClick={() => setMenuOpen(false)}>
+              Manage
+            </Link>
+          ) : null}
+          {isAdmin ? (
+            <button className="btn btn-ghost" type="button" disabled={scanning} onClick={() => void onScan()}>
+              {scanning ? 'Scanning…' : 'Scan library'}
+            </button>
+          ) : null}
           <button className="btn btn-ghost" type="button" onClick={() => void logout()}>
             Log out
           </button>
@@ -251,61 +249,35 @@ export function HomePage({ onLogout }: Props) {
           <div className="empty-state">
             <p className="hero-brand">WatchTheFlix</p>
             <h2>Library is empty</h2>
-            <p>
-              Scan pulls video files over WebDAV, then matches them on TMDB — large libraries can take
-              several minutes.
-            </p>
-            <button className="btn btn-primary" type="button" disabled={scanning} onClick={() => void onScan()}>
-              {scanning ? 'Scanning…' : 'Scan library'}
-            </button>
-            {scanMsg ? (
-              <p className={scanMsg.includes('failed') || scanMsg.includes('0 video') ? 'error-text' : 'muted'}>
-                {scanMsg}
-              </p>
-            ) : null}
-
-            <div className="diag-panel">
-              <div className="section-head">
-                <h2>Connection check</h2>
-                <button className="btn btn-ghost" type="button" onClick={() => void loadDiagnostics()}>
-                  Re-test
+            {isAdmin ? (
+              <>
+                <p>
+                  Scan pulls video files over WebDAV, then matches them on TMDB — large libraries can
+                  take several minutes.
+                </p>
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  disabled={scanning}
+                  onClick={() => void onScan()}
+                >
+                  {scanning ? 'Scanning…' : 'Scan library'}
                 </button>
-              </div>
-              {diagError ? <p className="error-text">{diagError}</p> : null}
-              {diag ? (
-                <>
-                  <ul className="diag-list">
-                    <li>
-                      WebDAV host: <code>{diag.config.webdavHost || '(missing)'}</code>
-                    </li>
-                    <li>
-                      MEDIA_ROOT: <code>{diag.config.mediaRoot}</code>
-                    </li>
-                    <li>
-                      Credentials:{' '}
-                      {diag.config.webdavUserSet && diag.config.webdavPasswordSet ? 'set' : 'missing'}
-                    </li>
-                    <li>TMDB key: {diag.config.tmdbKeySet ? 'set' : 'missing'}</li>
-                    <li>
-                      WebDAV probe:{' '}
-                      {diag.webdav.ok ? (
-                        <span className="ok-text">OK</span>
-                      ) : (
-                        <span className="error-text">Failed</span>
-                      )}
-                    </li>
-                  </ul>
-                  {diag.webdav.error ? <p className="error-text">{diag.webdav.error}</p> : null}
-                  {diag.webdav.ok && diag.webdav.mediaEntries.length > 0 ? (
-                    <p className="muted">
-                      Under MEDIA_ROOT: {diag.webdav.mediaEntries.map((e) => e.name).join(', ')}
-                    </p>
-                  ) : null}
-                </>
-              ) : (
-                <p className="muted">Running diagnostics…</p>
-              )}
-            </div>
+                {scanMsg ? (
+                  <p
+                    className={
+                      scanMsg.includes('failed') || scanMsg.includes('0 video')
+                        ? 'error-text'
+                        : 'muted'
+                    }
+                  >
+                    {scanMsg}
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p className="muted">Ask an admin to scan the library.</p>
+            )}
           </div>
         ) : q ? (
           <section className="section search-results">

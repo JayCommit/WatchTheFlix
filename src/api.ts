@@ -3,6 +3,7 @@ import type {
   ActivityProgress,
   AdminOverview,
   AdminTitle,
+  AuthUser,
   ConvertJob,
   ConvertNeedsFile,
   LibraryResponse,
@@ -30,7 +31,12 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     headers,
   })
   // /api/me returns 200 with { authed: false } — only treat protected routes as session loss
-  if (res.status === 401 && !url.endsWith('/api/me') && !url.includes('/api/login')) {
+  if (
+    res.status === 401 &&
+    !url.endsWith('/api/me') &&
+    !url.includes('/api/login') &&
+    !url.includes('/api/auth/')
+  ) {
     window.dispatchEvent(new Event('wtf:unauthorized'))
     throw new AuthError('Session expired — please sign in again')
   }
@@ -51,13 +57,39 @@ function normalizeAdminTitle(t: AdminTitle & { fileCount?: number; unmatched?: b
 }
 
 export const api = {
-  me: () => request<{ authed: boolean }>('/api/me'),
-  login: (password: string) =>
-    request<{ ok: boolean }>('/api/login', {
+  authStatus: () =>
+    request<{ hasUsers: boolean; allowRegister: boolean; setupRequired: boolean }>(
+      '/api/auth/status',
+    ),
+  me: () =>
+    request<{ authed: boolean; user: AuthUser | null; setupRequired: boolean }>('/api/me'),
+  login: (username: string, password: string) =>
+    request<{ ok: boolean; user: AuthUser }>('/api/login', {
       method: 'POST',
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ username, password }),
+    }),
+  register: (username: string, password: string) =>
+    request<{ ok: boolean; user: AuthUser; createdAdmin?: boolean }>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
     }),
   logout: () => request<{ ok: boolean }>('/api/logout', { method: 'POST' }),
+  adminUsers: () => request<{ users: AuthUser[] }>('/api/admin/users'),
+  adminCreateUser: (body: { username: string; password: string; role?: 'admin' | 'user' }) =>
+    request<{ user: AuthUser }>('/api/admin/users', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  adminPatchUser: (
+    id: number,
+    body: { role?: 'admin' | 'user'; disabled?: boolean; password?: string },
+  ) =>
+    request<{ user: AuthUser }>(`/api/admin/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  adminDeleteUser: (id: number) =>
+    request<{ ok: boolean }>(`/api/admin/users/${id}`, { method: 'DELETE' }),
   library: () => request<LibraryResponse>('/api/library'),
   diagnostics: () =>
     request<{

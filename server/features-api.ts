@@ -8,17 +8,18 @@ import {
   deleteProfile,
   getFilesForTitle,
   getMediaFileByPath,
-  getProfile,
   getProfileProgress,
   getTitleById,
   isOnWatchlist,
-  listProfiles,
+  listProfilesForUser,
   listProfileContinueWatching,
   listWatchlist,
   removeFromWatchlist,
   setPreferredFile,
   upsertProfileProgress,
+  userOwnsProfile,
 } from './db.ts'
+import { getDefaultProfileIdForUser } from './users.ts'
 import { getTitleHealth } from './health.ts'
 import { safeUnlink, resolveLocalPath } from './mediafs.ts'
 import { versionLabel, qualityRank } from './quality.ts'
@@ -26,21 +27,18 @@ import { extractSubtitleVtt, getStreamInfo } from './playback.ts'
 import { listExternalSubtitles, readExternalSubtitleVtt } from './subs.ts'
 import { backdropUrl, getCredits, getTrailers, posterUrl } from './tmdb.ts'
 
-type Vars = { Variables: { authed: boolean } }
+import { requireAdmin, requireAuth, type AuthVariables } from './auth-mw.ts'
 
-function requireAuth(c: {
-  get: (k: 'authed') => boolean
-  json: (d: unknown, s?: number) => Response
-}) {
-  if (!c.get('authed')) return c.json({ error: 'Unauthorized' }, 401)
-  return null
-}
+type Vars = { Variables: AuthVariables }
 
-function profileIdFrom(c: Context): number {
-  const raw = c.req.header('x-profile-id') || getCookie(c, 'wtf_profile') || '1'
+function profileIdFrom(c: Context<{ Variables: AuthVariables }>): number {
+  const user = c.get('user')
+  if (!user) return 1
+  const userFallback = getDefaultProfileIdForUser(user.id)
+  const raw = c.req.header('x-profile-id') || getCookie(c, 'wtf_profile') || String(userFallback)
   const id = Number(raw)
-  if (Number.isFinite(id) && id > 0 && getProfile(id)) return id
-  return 1
+  if (Number.isFinite(id) && id > 0 && userOwnsProfile(user.id, id)) return id
+  return userFallback
 }
 
 export function registerFeatureRoutes(app: Hono<Vars>): void {
@@ -99,15 +97,17 @@ export function registerFeatureRoutes(app: Hono<Vars>): void {
   app.get('/api/profiles', (c) => {
     const denied = requireAuth(c)
     if (denied) return denied
-    return c.json({ profiles: listProfiles(), activeId: profileIdFrom(c) })
+    const user = c.get('user')!
+    return c.json({ profiles: listProfilesForUser(user.id), activeId: profileIdFrom(c) })
   })
 
   app.post('/api/profiles', async (c) => {
     const denied = requireAuth(c)
     if (denied) return denied
+    const user = c.get('user')!
     const body = await c.req.json<{ name?: string }>().catch(() => null)
     try {
-      const profile = createProfile(body?.name || 'Viewer')
+      const profile = createProfile(body?.name || 'Viewer', user.id)
       return c.json({ profile })
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'Create failed' }, 400)
@@ -117,8 +117,9 @@ export function registerFeatureRoutes(app: Hono<Vars>): void {
   app.post('/api/profiles/:id/select', (c) => {
     const denied = requireAuth(c)
     if (denied) return denied
+    const user = c.get('user')!
     const id = Number(c.req.param('id'))
-    if (!getProfile(id)) return c.json({ error: 'Not found' }, 404)
+    if (!userOwnsProfile(user.id, id)) return c.json({ error: 'Not found' }, 404)
     setCookie(c, 'wtf_profile', String(id), { path: '/', maxAge: 60 * 60 * 24 * 365, sameSite: 'Lax' })
     return c.json({ ok: true, activeId: id })
   })
@@ -126,8 +127,9 @@ export function registerFeatureRoutes(app: Hono<Vars>): void {
   app.delete('/api/profiles/:id', (c) => {
     const denied = requireAuth(c)
     if (denied) return denied
+    const user = c.get('user')!
     try {
-      deleteProfile(Number(c.req.param('id')))
+      deleteProfile(Number(c.req.param('id')), user.id)
       return c.json({ ok: true })
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'Delete failed' }, 400)
@@ -196,7 +198,7 @@ export function registerFeatureRoutes(app: Hono<Vars>): void {
   })
 
   app.get('/api/admin/titles/:id/health', async (c) => {
-    const denied = requireAuth(c)
+    const denied = requireAdmin(c)
     if (denied) return denied
     const id = Number(c.req.param('id'))
     try {
@@ -207,7 +209,7 @@ export function registerFeatureRoutes(app: Hono<Vars>): void {
   })
 
   app.delete('/api/admin/files', async (c) => {
-    const denied = requireAuth(c)
+    const denied = requireAdmin(c)
     if (denied) return denied
     const body = await c.req
       .json<{ path?: string; deleteDisk?: boolean }>()
@@ -229,7 +231,7 @@ export function registerFeatureRoutes(app: Hono<Vars>): void {
   })
 
   app.post('/api/admin/files/prefer', async (c) => {
-    const denied = requireAuth(c)
+    const denied = requireAdmin(c)
     if (denied) return denied
     const body = await c.req
       .json<{ path?: string; titleId?: number }>()

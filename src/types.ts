@@ -1,3 +1,12 @@
+export type AuthUser = {
+  id: number
+  username: string
+  role: 'admin' | 'user'
+  disabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export type Title = {
   id: number
   kind: 'movie' | 'tv'

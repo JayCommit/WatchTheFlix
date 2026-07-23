@@ -1,18 +1,23 @@
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono, type Context } from 'hono'
-import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
+import { deleteCookie, getCookie } from 'hono/cookie'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { getConfig, publicConfigSummary, reloadConfig } from './config.ts'
+import { sessionCookieName } from './auth.ts'
+import { attachSession, issueSession, requireAdmin, requireAuth, type AuthVariables } from './auth-mw.ts'
 import {
-  checkPassword,
-  createSessionToken,
-  sessionCookieName,
-  sessionCookieOptions,
-  verifySessionToken,
-} from './auth.ts'
+  authenticateUser,
+  countUsers,
+  createUser,
+  deleteUser,
+  getDefaultProfileIdForUser,
+  listUsers,
+  toPublicUser,
+  updateUser,
+} from './users.ts'
 import {
   bulkHideTitles,
   bulkHideUnmatched,
@@ -36,7 +41,7 @@ import {
   listActivityEvents,
   listConvertJobs,
   listProfileContinueWatching,
-  getProfile,
+  userOwnsProfile,
   listFilesNeedingConvert,
   listNowPlaying,
   listRecentProgressActivity,
@@ -88,9 +93,7 @@ import { loginAllowed, recordLoginFailure, recordLoginSuccess } from './rate-lim
 import { listExternalSubtitles } from './subs.ts'
 import { versionLabel } from './quality.ts'
 
-type Variables = {
-  authed: boolean
-}
+type Variables = AuthVariables
 
 const app = new Hono<{ Variables: Variables }>()
 
@@ -139,17 +142,9 @@ function serializeTmdbMatch(m: TmdbMatch) {
 }
 
 app.use('/api/*', async (c, next) => {
-  const token = getCookie(c, sessionCookieName())
-  c.set('authed', verifySessionToken(token))
+  attachSession(c)
   await next()
 })
-
-function requireAuth(c: { get: (k: 'authed') => boolean; json: (d: unknown, s?: number) => Response }) {
-  if (!c.get('authed')) {
-    return c.json({ error: 'Unauthorized' }, 401)
-  }
-  return null
-}
 
 async function applyTmdbMatch(
   titleId: number,
@@ -210,10 +205,26 @@ async function fillMissingEpisodeNames(titleId: number, tmdbId: number): Promise
 
 app.get('/api/health', (c) => c.json({ ok: true }))
 
-app.get('/api/me', (c) => c.json({ authed: c.get('authed') }))
+app.get('/api/auth/status', (c) => {
+  const hasUsers = countUsers() > 0
+  const allowRegister = !hasUsers || getConfig().allowPublicRegistration
+  return c.json({
+    hasUsers,
+    allowRegister,
+    setupRequired: !hasUsers,
+  })
+})
 
-app.post('/api/login', async (c) => {
-  // Prefer proxy headers only when present (typical reverse-proxy deploy); else a stable local key.
+app.get('/api/me', (c) => {
+  const user = c.get('user')
+  return c.json({
+    authed: Boolean(user),
+    user: user ?? null,
+    setupRequired: countUsers() === 0,
+  })
+})
+
+app.post('/api/auth/register', async (c) => {
   const ip =
     c.req.header('x-real-ip')?.trim() ||
     c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
@@ -225,24 +236,133 @@ app.post('/api/login', async (c) => {
       429,
     )
   }
-  const body = await c.req.json<{ password?: string }>().catch(() => ({} as { password?: string }))
-  if (!body.password || !checkPassword(body.password)) {
+
+  const hasUsers = countUsers() > 0
+  if (hasUsers && !getConfig().allowPublicRegistration) {
+    return c.json({ error: 'Public registration is disabled. Ask an admin for an account.' }, 403)
+  }
+
+  const body = await c.req
+    .json<{ username?: string; password?: string }>()
+    .catch(() => null)
+  if (!body?.username || !body.password) {
+    return c.json({ error: 'username and password required' }, 400)
+  }
+
+  try {
+    const role = hasUsers ? 'user' : 'admin'
+    const user = createUser(body.username, body.password, role)
+    issueSession(c, user.id)
+    recordLoginSuccess(ip)
+    return c.json({
+      ok: true,
+      user: toPublicUser(user),
+      createdAdmin: role === 'admin',
+    })
+  } catch (err) {
     recordLoginFailure(ip)
-    return c.json({ error: 'Invalid password' }, 401)
+    return c.json({ error: err instanceof Error ? err.message : 'Registration failed' }, 400)
+  }
+})
+
+app.post('/api/login', async (c) => {
+  const ip =
+    c.req.header('x-real-ip')?.trim() ||
+    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
+    'local'
+  const gate = loginAllowed(ip)
+  if (!gate.ok) {
+    return c.json(
+      { error: `Too many failed attempts. Try again in ${gate.retryAfterSec}s.` },
+      429,
+    )
+  }
+
+  if (countUsers() === 0) {
+    return c.json(
+      { error: 'No accounts yet. Create the first admin account to continue.', setupRequired: true },
+      400,
+    )
+  }
+
+  const body = await c.req
+    .json<{ username?: string; password?: string }>()
+    .catch(() => null)
+  if (!body?.username || !body.password) {
+    return c.json({ error: 'username and password required' }, 400)
+  }
+
+  const user = authenticateUser(body.username, body.password)
+  if (!user) {
+    recordLoginFailure(ip)
+    return c.json({ error: 'Invalid username or password' }, 401)
   }
   recordLoginSuccess(ip)
-  const token = createSessionToken()
-  setCookie(c, sessionCookieName(), token, sessionCookieOptions())
-  return c.json({ ok: true })
+  issueSession(c, user.id)
+  return c.json({ ok: true, user: toPublicUser(user) })
 })
 
 app.post('/api/logout', (c) => {
   deleteCookie(c, sessionCookieName(), { path: '/' })
+  deleteCookie(c, 'wtf_profile', { path: '/' })
   return c.json({ ok: true })
 })
 
+// ——— Admin user management ———
+app.get('/api/admin/users', (c) => {
+  const denied = requireAdmin(c)
+  if (denied) return denied
+  return c.json({ users: listUsers() })
+})
+
+app.post('/api/admin/users', async (c) => {
+  const denied = requireAdmin(c)
+  if (denied) return denied
+  const body = await c.req
+    .json<{ username?: string; password?: string; role?: 'admin' | 'user' }>()
+    .catch(() => null)
+  if (!body?.username || !body.password) {
+    return c.json({ error: 'username and password required' }, 400)
+  }
+  try {
+    const user = createUser(body.username, body.password, body.role === 'admin' ? 'admin' : 'user')
+    return c.json({ user: toPublicUser(user) })
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Create failed' }, 400)
+  }
+})
+
+app.patch('/api/admin/users/:id', async (c) => {
+  const denied = requireAdmin(c)
+  if (denied) return denied
+  const id = Number(c.req.param('id'))
+  const body = await c.req
+    .json<{ role?: 'admin' | 'user'; disabled?: boolean; password?: string }>()
+    .catch(() => null)
+  if (!body) return c.json({ error: 'Invalid JSON' }, 400)
+  try {
+    const user = updateUser(id, body)
+    return c.json({ user: toPublicUser(user) })
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Update failed' }, 400)
+  }
+})
+
+app.delete('/api/admin/users/:id', (c) => {
+  const denied = requireAdmin(c)
+  if (denied) return denied
+  const id = Number(c.req.param('id'))
+  const actor = c.get('user')!
+  try {
+    deleteUser(id, actor.id)
+    return c.json({ ok: true })
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Delete failed' }, 400)
+  }
+})
+
 app.get('/api/diagnostics', async (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   reloadConfig()
   const summary = publicConfigSummary()
@@ -259,7 +379,7 @@ app.get('/api/diagnostics', async (c) => {
   })
 
 app.post('/api/scan', async (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   try {
     reloadConfig()
@@ -281,11 +401,16 @@ app.post('/api/scan', async (c) => {
   }
 })
 
-function activeProfileId(c: Context): number {
-  const profileRaw = c.req.header('x-profile-id') || getCookie(c, 'wtf_profile') || '1'
+function activeProfileId(c: Context<{ Variables: Variables }>): number {
+  const user = c.get('user')
+  if (!user) return 1
+  const fallback = getDefaultProfileIdForUser(user.id)
+  const profileRaw = c.req.header('x-profile-id') || getCookie(c, 'wtf_profile') || String(fallback)
   const profileId = Number(profileRaw)
-  if (Number.isFinite(profileId) && profileId > 0 && getProfile(profileId)) return profileId
-  return 1
+  if (Number.isFinite(profileId) && profileId > 0 && userOwnsProfile(user.id, profileId)) {
+    return profileId
+  }
+  return fallback
 }
 
 app.get('/api/library', (c) => {
@@ -406,7 +531,7 @@ registerFeatureRoutes(app)
 // ——— Admin APIs (same session cookie as the rest of the app) ———
 
 app.get('/api/admin/titles', (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const q = c.req.query('q') ?? undefined
   const kindRaw = c.req.query('kind')
@@ -424,7 +549,7 @@ app.get('/api/admin/titles', (c) => {
 })
 
 app.get('/api/admin/titles/:id', (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const id = Number(c.req.param('id'))
   if (!Number.isFinite(id)) return c.json({ error: 'Invalid id' }, 400)
@@ -458,7 +583,7 @@ app.get('/api/admin/titles/:id', (c) => {
 })
 
 app.patch('/api/admin/titles/:id', async (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const id = Number(c.req.param('id'))
   if (!Number.isFinite(id)) return c.json({ error: 'Invalid id' }, 400)
@@ -495,7 +620,7 @@ app.patch('/api/admin/titles/:id', async (c) => {
 })
 
 app.post('/api/admin/titles/:id/rematch', async (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const id = Number(c.req.param('id'))
   if (!Number.isFinite(id)) return c.json({ error: 'Invalid id' }, 400)
@@ -548,7 +673,7 @@ app.post('/api/admin/titles/:id/rematch', async (c) => {
 })
 
 app.delete('/api/admin/titles/:id', (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const id = Number(c.req.param('id'))
   if (!Number.isFinite(id)) return c.json({ error: 'Invalid id' }, 400)
@@ -566,7 +691,7 @@ app.delete('/api/admin/titles/:id', (c) => {
 })
 
 app.get('/api/admin/unmatched', (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const rows = listUnmatchedTitles()
   return c.json({
@@ -587,7 +712,7 @@ app.get('/api/admin/unmatched', (c) => {
 })
 
 app.post('/api/admin/titles/:id/merge', async (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const sourceId = Number(c.req.param('id'))
   const body = await c.req
@@ -611,7 +736,7 @@ app.post('/api/admin/titles/:id/merge', async (c) => {
 })
 
 app.post('/api/admin/files/reassign', async (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const body = await c.req
     .json<{ path?: string; titleId?: number }>()
@@ -644,7 +769,7 @@ app.post('/api/admin/files/reassign', async (c) => {
 })
 
 app.get('/api/admin/tmdb/search', async (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const q = c.req.query('q')?.trim()
   const kindRaw = c.req.query('kind')
@@ -662,7 +787,7 @@ app.get('/api/admin/tmdb/search', async (c) => {
 })
 
 app.get('/api/admin/overview', (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   pruneOldSessions()
   const stats = getLibraryStats()
@@ -689,7 +814,7 @@ app.get('/api/admin/overview', (c) => {
 })
 
 app.get('/api/admin/now-playing', (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   pruneOldSessions()
   const includeStale =
@@ -702,7 +827,7 @@ app.get('/api/admin/now-playing', (c) => {
 })
 
 app.get('/api/admin/activity', (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const limitRaw = Number(c.req.query('limit') ?? 50)
   const limit = Number.isFinite(limitRaw) ? Math.min(200, Math.max(1, limitRaw)) : 50
@@ -737,7 +862,7 @@ app.get('/api/admin/activity', (c) => {
 })
 
 app.post('/api/admin/unmatched/bulk-hide', async (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const body = await c.req
     .json<{ ids?: number[]; all?: boolean }>()
@@ -759,7 +884,7 @@ app.post('/api/admin/unmatched/bulk-hide', async (c) => {
 })
 
 app.post('/api/admin/progress/clear', async (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const body = await c.req
     .json<{ path?: string; titleId?: number }>()
@@ -787,7 +912,7 @@ app.post('/api/admin/progress/clear', async (c) => {
 })
 
 app.post('/api/admin/progress/watched', async (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const body = await c.req
     .json<{ path?: string; titleId?: number; duration?: number }>()
@@ -1153,7 +1278,7 @@ function serializeConvertJob(j: ReturnType<typeof getConvertJob>) {
 }
 
 app.get('/api/admin/convert/jobs', (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const limit = Math.min(200, Number(c.req.query('limit') ?? 100) || 100)
   return c.json({
@@ -1165,7 +1290,7 @@ app.get('/api/admin/convert/jobs', (c) => {
 })
 
 app.get('/api/admin/convert/needs', (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const limit = Math.min(500, Number(c.req.query('limit') ?? 200) || 200)
   const files = listFilesNeedingConvert(limit).map((f) => ({
@@ -1189,7 +1314,7 @@ app.get('/api/admin/convert/needs', (c) => {
 })
 
 app.post('/api/admin/convert/probe', async (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const body =
     (await c.req.json<{ paths?: string[]; limit?: number }>().catch(() => null)) ?? {}
@@ -1220,7 +1345,7 @@ app.post('/api/admin/convert/probe', async (c) => {
 })
 
 app.post('/api/admin/convert/enqueue', async (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   if (!localMediaEnabled() && !getConfig().localMediaRoot) {
     // Still allow if files resolve as-is on disk
@@ -1257,7 +1382,7 @@ app.post('/api/admin/convert/enqueue', async (c) => {
 })
 
 app.post('/api/admin/convert/jobs/:id/cancel', (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const id = Number(c.req.param('id'))
   const job = requestCancelConvert(id)
@@ -1266,7 +1391,7 @@ app.post('/api/admin/convert/jobs/:id/cancel', (c) => {
 })
 
 app.get('/api/admin/convert/jobs/:id', (c) => {
-  const denied = requireAuth(c)
+  const denied = requireAdmin(c)
   if (denied) return denied
   const id = Number(c.req.param('id'))
   const job = getConvertJob(id)

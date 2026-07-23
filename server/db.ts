@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { migrateUsers } from './users.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const dataDir = join(__dirname, '..', 'data')
@@ -189,6 +190,8 @@ function migrate(): void {
       SELECT 1, path, position, duration, updated_at FROM progress
     `)
   }
+
+  migrateUsers()
 }
 
 migrate()
@@ -1365,28 +1368,50 @@ export function convertJobStats(): {
   }
 }
 
-export type ProfileRow = { id: number; name: string; created_at: string }
+export type ProfileRow = {
+  id: number
+  name: string
+  created_at: string
+  user_id: number | null
+}
 
 export function listProfiles(): ProfileRow[] {
   return db.prepare(`SELECT * FROM profiles ORDER BY id ASC`).all() as ProfileRow[]
+}
+
+export function listProfilesForUser(userId: number): ProfileRow[] {
+  return db
+    .prepare(`SELECT * FROM profiles WHERE user_id = ? ORDER BY id ASC`)
+    .all(userId) as ProfileRow[]
 }
 
 export function getProfile(id: number): ProfileRow | undefined {
   return db.prepare(`SELECT * FROM profiles WHERE id = ?`).get(id) as ProfileRow | undefined
 }
 
-export function createProfile(name: string): ProfileRow {
+export function userOwnsProfile(userId: number, profileId: number): boolean {
+  const row = db
+    .prepare(`SELECT id FROM profiles WHERE id = ? AND user_id = ?`)
+    .get(profileId, userId) as { id: number } | undefined
+  return Boolean(row)
+}
+
+export function createProfile(name: string, userId: number): ProfileRow {
   const trimmed = name.trim().slice(0, 40)
   if (!trimmed) throw new Error('Name required')
   const result = db
-    .prepare(`INSERT INTO profiles (name, created_at) VALUES (?, ?)`)
-    .run(trimmed, new Date().toISOString())
+    .prepare(`INSERT INTO profiles (name, created_at, user_id) VALUES (?, ?, ?)`)
+    .run(trimmed, new Date().toISOString(), userId)
   return getProfile(Number(result.lastInsertRowid))!
 }
 
-export function deleteProfile(id: number): boolean {
-  if (id === 1) throw new Error('Cannot delete the default profile')
-  const result = db.prepare(`DELETE FROM profiles WHERE id = ?`).run(id)
+export function deleteProfile(id: number, userId: number): boolean {
+  if (!userOwnsProfile(userId, id)) throw new Error('Profile not found')
+  const count = (
+    db.prepare(`SELECT COUNT(*) AS c FROM profiles WHERE user_id = ?`).get(userId) as { c: number }
+  ).c
+  if (count <= 1) throw new Error('Cannot delete your only profile')
+  const result = db.prepare(`DELETE FROM profiles WHERE id = ? AND user_id = ?`).run(id, userId)
   return Number(result.changes ?? 0) > 0
 }
 

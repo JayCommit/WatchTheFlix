@@ -21,6 +21,8 @@ export type AppConfig = {
   scanIntervalMinutes: number
   /** Comma-separated path substrings to skip during scan */
   scanIgnore: string[]
+  /** After the first admin exists, allow open self-registration as role=user */
+  allowPublicRegistration: boolean
   isProd: boolean
 }
 
@@ -68,6 +70,9 @@ function readConfig(): AppConfig {
       .split(',')
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),
+    allowPublicRegistration: ['1', 'true', 'yes'].includes(
+      (process.env.ALLOW_PUBLIC_REGISTRATION ?? '').toLowerCase(),
+    ),
     isProd: process.env.NODE_ENV === 'production',
   }
 }
@@ -119,6 +124,8 @@ export function publicConfigSummary() {
     ffmpegHw: c.ffmpegHw,
     scanIntervalMinutes: c.scanIntervalMinutes,
     scanIgnore: c.scanIgnore,
+    allowPublicRegistration: c.allowPublicRegistration,
+    hasUsers: null as boolean | null, // filled by caller if needed
   }
 }
 
