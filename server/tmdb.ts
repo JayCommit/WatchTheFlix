@@ -316,3 +316,84 @@ export async function getEpisodeName(
     return null
   }
 }
+
+export type TmdbSeasonEpisode = {
+  season: number
+  episode: number
+  name: string
+  airDate: string | null
+}
+
+export async function getTvSeasonEpisodes(
+  tmdbId: number,
+  season: number,
+): Promise<TmdbSeasonEpisode[]> {
+  const data = await tmdbFetch<{
+    episodes?: Array<{ episode_number: number; name: string; air_date?: string }>
+  }>(`/tv/${tmdbId}/season/${season}`)
+  return (data.episodes ?? []).map((e) => ({
+    season,
+    episode: e.episode_number,
+    name: e.name,
+    airDate: e.air_date ?? null,
+  }))
+}
+
+export async function getTvSeasonCount(tmdbId: number): Promise<number> {
+  const data = await tmdbFetch<{ number_of_seasons?: number }>(`/tv/${tmdbId}`)
+  return data.number_of_seasons ?? 0
+}
+
+export type TmdbTrailer = {
+  key: string
+  name: string
+  site: string
+  type: string
+  url: string
+}
+
+export async function getTrailers(kind: 'movie' | 'tv', tmdbId: number): Promise<TmdbTrailer[]> {
+  try {
+    const data = await tmdbFetch<{
+      results?: Array<{ key: string; name: string; site: string; type: string; official?: boolean }>
+    }>(`/${kind}/${tmdbId}/videos`)
+    return (data.results ?? [])
+      .filter((v) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser'))
+      .slice(0, 6)
+      .map((v) => ({
+        key: v.key,
+        name: v.name,
+        site: v.site,
+        type: v.type,
+        url: `https://www.youtube.com/watch?v=${v.key}`,
+      }))
+  } catch {
+    return []
+  }
+}
+
+export type TmdbCastMember = {
+  id: number
+  name: string
+  character: string
+  profilePath: string | null
+}
+
+export async function getCredits(
+  kind: 'movie' | 'tv',
+  tmdbId: number,
+): Promise<TmdbCastMember[]> {
+  try {
+    const data = await tmdbFetch<{
+      cast?: Array<{ id: number; name: string; character?: string; profile_path?: string | null }>
+    }>(`/${kind}/${tmdbId}/credits`)
+    return (data.cast ?? []).slice(0, 12).map((c) => ({
+      id: c.id,
+      name: c.name,
+      character: c.character ?? '',
+      profilePath: c.profile_path ?? null,
+    }))
+  } catch {
+    return []
+  }
+}

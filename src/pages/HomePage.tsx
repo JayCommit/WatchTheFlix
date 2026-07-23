@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { Hero } from '../components/Hero'
 import { PosterCard } from '../components/PosterCard'
+import { ProfileSwitcher } from '../components/ProfileSwitcher'
 import { Row } from '../components/Row'
 import { HomeSkeleton } from '../components/Skeleton'
 import { TopBar } from '../components/TopBar'
@@ -30,6 +31,7 @@ export function HomePage({ onLogout }: Props) {
   const [diagError, setDiagError] = useState('')
   const [query, setQuery] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [watchlist, setWatchlist] = useState<Title[]>([])
 
   async function load() {
     try {
@@ -53,6 +55,10 @@ export function HomePage({ onLogout }: Props) {
 
   useEffect(() => {
     void load()
+    void api
+      .watchlist()
+      .then((r) => setWatchlist(r.items))
+      .catch(() => undefined)
   }, [])
 
   useEffect(() => {
@@ -151,6 +157,19 @@ export function HomePage({ onLogout }: Props) {
 
   const actions = (
     <>
+      <ProfileSwitcher />
+      <button
+        className="btn btn-ghost hide-sm"
+        type="button"
+        title="Toggle theme"
+        onClick={() => {
+          const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'
+          document.documentElement.dataset.theme = next
+          localStorage.setItem('wtf_theme', next)
+        }}
+      >
+        Theme
+      </button>
       {scanMsg ? <span className="muted scan-status hide-sm">{scanMsg}</span> : null}
       <Link className="topbar-manage hide-sm" to="/admin">
         Manage
@@ -314,6 +333,14 @@ export function HomePage({ onLogout }: Props) {
           <>
             {featured ? (
               <Hero title={featured} ctaPath={featuredCta.path} ctaLabel={featuredCta.label} />
+            ) : null}
+
+            {watchlist.length > 0 ? (
+              <Row title="Watchlist">
+                {watchlist.map((t) => (
+                  <PosterCard key={`w-${t.kind}-${t.id}`} title={t} />
+                ))}
+              </Row>
             ) : null}
 
             {data.continueWatching.length > 0 ? (

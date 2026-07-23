@@ -92,11 +92,18 @@ export const api = {
     }>('/api/scan', { method: 'POST' }),
   movie: (id: number) => request<TitleDetail>(`/api/movie/${id}`),
   tv: (id: number) => request<TitleDetail>(`/api/tv/${id}`),
-  saveProgress: (path: string, position: number, duration: number) =>
-    request<{ ok: boolean }>('/api/progress', {
+  saveProgress: async (path: string, position: number, duration: number) => {
+    await request<{ ok: boolean }>('/api/progress', {
       method: 'PUT',
       body: JSON.stringify({ path, position, duration, clientId: getClientId() }),
-    }),
+    })
+    // Best-effort profile-scoped copy
+    void request<{ ok: boolean }>('/api/progress/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ path, position, duration }),
+    }).catch(() => undefined)
+    return { ok: true as const }
+  },
   playbackHeartbeat: (body: {
     path: string
     titleId?: number
@@ -109,8 +116,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ ...body, clientId: getClientId() }),
     }),
-  streamInfo: (path: string) =>
-    request<{
+  streamInfo: (path: string, audio = 0) => {
+    const sp = new URLSearchParams({ path })
+    if (audio > 0) sp.set('audio', String(audio))
+    return request<{
       mode: 'direct' | 'remux' | 'transcode'
       ffmpegAvailable: boolean
       container: string | null
@@ -121,16 +130,79 @@ export const api = {
       height: number | null
       reason: string
       canDirect: boolean
-    }>(`/api/stream/info?path=${encodeURIComponent(path)}`),
+      audioTracks: import('./types').AudioTrack[]
+      subtitleTracks: import('./types').SubtitleTrack[]
+      hwEncoder: string | null
+    }>(`/api/stream/info?${sp}`)
+  },
   streamUrl: (
     path: string,
-    opts?: { mode?: 'direct' | 'remux' | 'transcode' | 'auto'; start?: number },
+    opts?: {
+      mode?: 'direct' | 'remux' | 'transcode' | 'auto'
+      start?: number
+      audio?: number
+    },
   ) => {
     const params = new URLSearchParams({ path })
     if (opts?.mode && opts.mode !== 'auto') params.set('mode', opts.mode)
     if (opts?.start && opts.start > 0.5) params.set('t', String(Math.floor(opts.start)))
+    if (opts?.audio && opts.audio > 0) params.set('audio', String(opts.audio))
     return `/api/stream?${params.toString()}`
   },
+  subtitleUrl: (
+    path: string,
+    track: { kind: string; index: number; path?: string },
+  ) => {
+    const sp = new URLSearchParams({
+      path,
+      kind: track.kind,
+      index: String(track.index),
+    })
+    if (track.path) sp.set('sidecar', track.path)
+    return `/api/stream/subtitle?${sp}`
+  },
+  titleExtras: (id: number) =>
+    request<{
+      onWatchlist: boolean
+      trailers: Array<{ key: string; name: string; url: string; type: string }>
+      cast: Array<{ id: number; name: string; character: string; profile: string | null }>
+      health: {
+        missing: Array<{ season: number; episode: number; name: string; airDate: string | null }>
+        present: number
+        expected: number
+      } | null
+    }>(`/api/title/${id}/extras`),
+  profiles: () =>
+    request<{ profiles: Array<{ id: number; name: string }>; activeId: number }>('/api/profiles'),
+  selectProfile: (id: number) =>
+    request<{ ok: boolean }>(`/api/profiles/${id}/select`, { method: 'POST' }),
+  createProfile: (name: string) =>
+    request<{ profile: { id: number; name: string } }>('/api/profiles', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+  watchlist: () =>
+    request<{ items: import('./types').Title[] }>('/api/watchlist'),
+  addWatchlist: (titleId: number) =>
+    request<{ ok: boolean }>(`/api/watchlist/${titleId}`, { method: 'POST' }),
+  removeWatchlist: (titleId: number) =>
+    request<{ ok: boolean }>(`/api/watchlist/${titleId}`, { method: 'DELETE' }),
+  adminDeleteFile: (path: string, deleteDisk: boolean) =>
+    request<{ ok: boolean; diskDeleted: boolean }>('/api/admin/files', {
+      method: 'DELETE',
+      body: JSON.stringify({ path, deleteDisk }),
+    }),
+  adminPreferFile: (titleId: number, path: string) =>
+    request<{ ok: boolean }>('/api/admin/files/prefer', {
+      method: 'POST',
+      body: JSON.stringify({ titleId, path }),
+    }),
+  titleHealth: (id: number) =>
+    request<{
+      missing: Array<{ season: number; episode: number; name: string }>
+      present: number
+      expected: number
+    }>(`/api/admin/titles/${id}/health`),
 
   adminTitles: async (params?: {
     q?: string

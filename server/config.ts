@@ -7,13 +7,20 @@ export type AppConfig = {
   webdavUrl: string
   webdavUser: string
   webdavPassword: string
+  /** Primary root (compat). Prefer mediaRoots. */
   mediaRoot: string
-  /** Absolute local path where media is mounted (Ubuntu container). Empty = WebDAV-only. */
+  /** One or more WebDAV roots to scan (comma-separated MEDIA_ROOTS or MEDIA_ROOT). */
+  mediaRoots: string[]
   localMediaRoot: string
   tmdbApiKey: string
   convertConcurrency: number
-  /** Default for new convert jobs: quarantine then optionally delete originals */
   convertDeleteOriginalDefault: boolean
+  /** none | software | auto | nvenc | vaapi | qsv */
+  ffmpegHw: string
+  /** Auto-scan interval in minutes; 0 = disabled */
+  scanIntervalMinutes: number
+  /** Comma-separated path substrings to skip during scan */
+  scanIgnore: string[]
   isProd: boolean
 }
 
@@ -27,7 +34,19 @@ function normalizeWebdavUrl(url: string): string {
   return url.trim().replace(/\/+$/, '')
 }
 
+function parseRoots(): string[] {
+  const multi = (process.env.MEDIA_ROOTS ?? '').trim()
+  if (multi) {
+    return multi
+      .split(',')
+      .map((s) => normalizeRoot(s.trim()))
+      .filter(Boolean)
+  }
+  return [normalizeRoot(process.env.MEDIA_ROOT ?? '/')]
+}
+
 function readConfig(): AppConfig {
+  const mediaRoots = parseRoots()
   return {
     port: Number(process.env.PORT ?? 8787),
     appPassword: process.env.APP_PASSWORD ?? 'changeme',
@@ -35,13 +54,20 @@ function readConfig(): AppConfig {
     webdavUrl: normalizeWebdavUrl(process.env.SFTPGO_WEBDAV_URL ?? ''),
     webdavUser: process.env.SFTPGO_USER ?? '',
     webdavPassword: process.env.SFTPGO_PASSWORD ?? '',
-    mediaRoot: normalizeRoot(process.env.MEDIA_ROOT ?? '/'),
+    mediaRoot: mediaRoots[0] ?? '/',
+    mediaRoots,
     localMediaRoot: (process.env.LOCAL_MEDIA_ROOT ?? '').trim(),
     tmdbApiKey: process.env.TMDB_API_KEY ?? '',
     convertConcurrency: Math.max(1, Number(process.env.CONVERT_CONCURRENCY ?? 1)),
     convertDeleteOriginalDefault: ['1', 'true', 'yes'].includes(
       (process.env.CONVERT_DELETE_ORIGINAL ?? '').toLowerCase(),
     ),
+    ffmpegHw: (process.env.FFMPEG_HW ?? 'auto').toLowerCase().trim() || 'auto',
+    scanIntervalMinutes: Math.max(0, Number(process.env.SCAN_INTERVAL_MINUTES ?? 0) || 0),
+    scanIgnore: (process.env.SCAN_IGNORE ?? '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
     isProd: process.env.NODE_ENV === 'production',
   }
 }
@@ -50,7 +76,6 @@ let cached: AppConfig | null = null
 let loadedAt = 0
 const RELOAD_MS = 2000
 
-/** Cached config; re-reads .env at most every few seconds. */
 export function getConfig(): AppConfig {
   const now = Date.now()
   if (!cached || now - loadedAt > RELOAD_MS) {
@@ -61,7 +86,6 @@ export function getConfig(): AppConfig {
   return cached
 }
 
-/** Force a fresh .env read (scan / diagnostics). */
 export function reloadConfig(): AppConfig {
   loadDotenv({ override: true, quiet: true })
   cached = readConfig()
@@ -69,7 +93,6 @@ export function reloadConfig(): AppConfig {
   return cached
 }
 
-/** Snapshot for startup. Prefer getConfig() in request paths. */
 export const config = reloadConfig()
 
 export function publicConfigSummary() {
@@ -86,12 +109,16 @@ export function publicConfigSummary() {
     webdavUserSet: Boolean(c.webdavUser),
     webdavPasswordSet: Boolean(c.webdavPassword),
     mediaRoot: c.mediaRoot,
+    mediaRoots: c.mediaRoots,
     localMediaRoot: c.localMediaRoot || null,
     localMediaEnabled: Boolean(c.localMediaRoot),
     tmdbKeySet: Boolean(c.tmdbApiKey),
     appPasswordSet: Boolean(c.appPassword),
     convertConcurrency: c.convertConcurrency,
     convertDeleteOriginalDefault: c.convertDeleteOriginalDefault,
+    ffmpegHw: c.ffmpegHw,
+    scanIntervalMinutes: c.scanIntervalMinutes,
+    scanIgnore: c.scanIgnore,
   }
 }
 

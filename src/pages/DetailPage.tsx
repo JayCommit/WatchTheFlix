@@ -27,6 +27,17 @@ export function DetailPage({ kind }: Props) {
   const [detail, setDetail] = useState<TitleDetail | null>(null)
   const [error, setError] = useState('')
   const [season, setSeason] = useState<SeasonFilter>('all')
+  const [onWatchlist, setOnWatchlist] = useState(false)
+  const [trailers, setTrailers] = useState<Array<{ name: string; url: string }>>([])
+  const [cast, setCast] = useState<Array<{ name: string; character: string; profile: string | null }>>(
+    [],
+  )
+  const [missing, setMissing] = useState<
+    Array<{ season: number; episode: number; name: string }>
+  >([])
+  const [healthStats, setHealthStats] = useState<{ present: number; expected: number } | null>(
+    null,
+  )
 
   useEffect(() => {
     const num = Number(id)
@@ -54,6 +65,19 @@ export function DetailPage({ kind }: Props) {
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load')
       })
+    void api
+      .titleExtras(num)
+      .then((ex) => {
+        if (cancelled) return
+        setOnWatchlist(ex.onWatchlist)
+        setTrailers(ex.trailers)
+        setCast(ex.cast)
+        setMissing(ex.health?.missing ?? [])
+        setHealthStats(
+          ex.health ? { present: ex.health.present, expected: ex.health.expected } : null,
+        )
+      })
+      .catch(() => undefined)
     return () => {
       cancelled = true
     }
@@ -214,12 +238,76 @@ export function DetailPage({ kind }: Props) {
                   Play from start
                 </button>
               ) : null}
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => {
+                  void (async () => {
+                    if (onWatchlist) {
+                      await api.removeWatchlist(detail.id)
+                      setOnWatchlist(false)
+                    } else {
+                      await api.addWatchlist(detail.id)
+                      setOnWatchlist(true)
+                    }
+                  })()
+                }}
+              >
+                {onWatchlist ? 'On watchlist' : 'Add to watchlist'}
+              </button>
+              {trailers[0] ? (
+                <a className="btn btn-ghost" href={trailers[0].url} target="_blank" rel="noreferrer">
+                  Trailer
+                </a>
+              ) : null}
               {!primaryFile ? <span className="muted">No playable files yet</span> : null}
             </div>
             <p className="kbd-hint muted">Press Enter or P to play</p>
           </div>
         </div>
       </section>
+
+      {cast.length > 0 ? (
+        <section className="section">
+          <div className="section-head">
+            <h2>Cast</h2>
+          </div>
+          <div className="cast-row">
+            {cast.map((m) => (
+              <div key={m.name + m.character} className="cast-card">
+                {m.profile ? <img src={m.profile} alt="" /> : <div className="cast-fallback" />}
+                <strong>{m.name}</strong>
+                <span className="muted">{m.character}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {kind === 'tv' && healthStats && healthStats.expected > 0 ? (
+        <section className="section">
+          <div className="section-head">
+            <h2>Library health</h2>
+            <span className="muted">
+              {healthStats.present}/{healthStats.expected} episodes
+            </span>
+          </div>
+          {missing.length === 0 ? (
+            <p className="muted">All known episodes present.</p>
+          ) : (
+            <ul className="missing-list">
+              {missing.slice(0, 40).map((m) => (
+                <li key={`${m.season}x${m.episode}`}>
+                  S{String(m.season).padStart(2, '0')}E{String(m.episode).padStart(2, '0')} · {m.name}
+                </li>
+              ))}
+              {missing.length > 40 ? (
+                <li className="muted">…and {missing.length - 40} more</li>
+              ) : null}
+            </ul>
+          )}
+        </section>
+      ) : null}
 
       {kind === 'tv' ? (
         <section className="section">
@@ -272,7 +360,10 @@ export function DetailPage({ kind }: Props) {
                   >
                     <strong className="ep-code">{label}</strong>
                     <div className="ep-body">
-                      <strong>{file.episodeName || file.filename}</strong>
+                      <strong>
+                        {file.episodeName || file.filename}
+                        {file.label ? <span className="version-pill">{file.label}</span> : null}
+                      </strong>
                       <span>
                         {hasResume(file)
                           ? `Resume at ${formatTime(file.progress!.position)}`
@@ -311,7 +402,10 @@ export function DetailPage({ kind }: Props) {
                 >
                   <strong className="ep-code">File</strong>
                   <div className="ep-body">
-                    <strong>{file.filename}</strong>
+                    <strong>
+                      {file.filename}
+                      {file.label ? <span className="version-pill">{file.label}</span> : null}
+                    </strong>
                     <span>
                       {hasResume(file)
                         ? `Resume at ${formatTime(file.progress!.position)}`

@@ -34,6 +34,9 @@ export function PlayerPage() {
   const [streamInfo, setStreamInfo] = useState<StreamInfo | null>(null)
   const [startOffset, setStartOffset] = useState(0)
   const [srcNonce, setSrcNonce] = useState(0)
+  const [audioIndex, setAudioIndex] = useState(0)
+  const [subtitleKey, setSubtitleKey] = useState<string>('off')
+  const [showUpNext, setShowUpNext] = useState(false)
 
   const titleId = Number(params.get('titleId'))
   const kind = (params.get('kind') as 'movie' | 'tv') || 'movie'
@@ -100,18 +103,20 @@ export function PlayerPage() {
     const resume = !fromStart && file?.progress?.position && file.progress.position > 30
       ? file.progress.position
       : 0
+    // Keep current position when only switching audio tracks
+    const holdAt = startOffsetRef.current > 1 ? startOffsetRef.current : resume
 
     api
-      .streamInfo(path)
+      .streamInfo(path, audioIndex)
       .then((info) => {
         if (cancelled) return
         setStreamInfo(info)
         if (info.duration && info.duration > 0) setDuration(info.duration)
         const mode = info.mode
-        if ((mode === 'remux' || mode === 'transcode') && resume > 0) {
-          setStartOffset(resume)
-          setCurrentTime(resume)
-        } else {
+        if ((mode === 'remux' || mode === 'transcode') && holdAt > 0) {
+          setStartOffset(holdAt)
+          setCurrentTime(holdAt)
+        } else if (mode === 'direct') {
           setStartOffset(0)
         }
         setSrcNonce((n) => n + 1)
@@ -125,7 +130,7 @@ export function PlayerPage() {
     return () => {
       cancelled = true
     }
-  }, [path, detail, params])
+  }, [path, detail, params, audioIndex])
 
   const absoluteTime = useCallback(() => {
     const video = videoRef.current
@@ -205,6 +210,11 @@ export function PlayerPage() {
           : startOffsetRef.current + video.currentTime
       setCurrentTime(t)
       void saveProgress()
+      const dur =
+        streamInfo.mode === 'direct'
+          ? video.duration || duration || 0
+          : duration || video.duration || 0
+      if (dur > 0 && t >= dur - 35 && t < dur - 0.5) setShowUpNext(true)
     }
     const onDuration = () => {
       if (streamInfo.mode === 'direct' && video.duration) setDuration(video.duration)
@@ -293,7 +303,7 @@ export function PlayerPage() {
       // Keep Now Playing alive across remux/transcode seeks (src remounts).
       void saveProgress(true)
     }
-  }, [path, detail, streamInfo, saveProgress, sendHeartbeat, params, srcNonce, absoluteTime])
+  }, [path, detail, streamInfo, saveProgress, sendHeartbeat, params, srcNonce, absoluteTime, duration])
 
   const saveProgressRef = useRef(saveProgress)
   const sendHeartbeatRef = useRef(sendHeartbeat)
@@ -321,6 +331,9 @@ export function PlayerPage() {
 
   const goNext = useCallback(() => {
     if (!nextFile || !detail) return
+    setShowUpNext(false)
+    setSubtitleKey('off')
+    setAudioIndex(0)
     void saveProgress(true)
     const url = `/play?path=${encodeURIComponent(nextFile.path)}&titleId=${detail.id}&kind=tv`
     navigate(url)
@@ -480,8 +493,16 @@ export function PlayerPage() {
       ? api.streamUrl(path, {
           mode: streamInfo.mode,
           start: compatMode ? startOffset : 0,
+          audio: audioIndex,
         })
       : undefined
+
+  const activeSub =
+    subtitleKey !== 'off' && streamInfo?.subtitleTracks
+      ? streamInfo.subtitleTracks.find(
+          (t) => `${t.kind}:${t.index}:${t.path ?? ''}` === subtitleKey,
+        )
+      : null
 
   const modeLabel =
     streamInfo?.mode === 'transcode'
@@ -539,12 +560,24 @@ export function PlayerPage() {
         {videoSrc ? (
           <video
             ref={videoRef}
-            key={`${path}:${srcNonce}:${streamInfo?.mode}:${Math.floor(startOffset)}`}
+            key={`${path}:${srcNonce}:${streamInfo?.mode}:${Math.floor(startOffset)}:${audioIndex}`}
             src={videoSrc}
             autoPlay
             playsInline
+            crossOrigin="use-credentials"
             onPlay={bumpChrome}
-          />
+          >
+            {activeSub ? (
+              <track
+                key={subtitleKey}
+                kind="subtitles"
+                src={api.subtitleUrl(path, activeSub)}
+                srcLang={activeSub.language || 'en'}
+                label={activeSub.title || activeSub.language || 'Subtitles'}
+                default
+              />
+            ) : null}
+          </video>
         ) : (
           <div className="player-buffering" aria-live="polite">
             <div className="spinner" />
@@ -629,6 +662,47 @@ export function PlayerPage() {
                 </span>
               </div>
               <div className="right">
+                {streamInfo && streamInfo.audioTracks.length > 1 ? (
+                  <label className="track-select">
+                    <span className="sr-only">Audio</span>
+                    <select
+                      value={audioIndex}
+                      onChange={(e) => {
+                        const next = Number(e.target.value)
+                        setStartOffset(absoluteTime())
+                        setAudioIndex(next)
+                        setBuffering(true)
+                      }}
+                    >
+                      {streamInfo.audioTracks.map((t) => (
+                        <option key={t.index} value={t.index}>
+                          {t.language || t.title || `Audio ${t.index + 1}`}
+                          {t.codec ? ` (${t.codec})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                {streamInfo && streamInfo.subtitleTracks.length > 0 ? (
+                  <label className="track-select">
+                    <span className="sr-only">Subtitles</span>
+                    <select
+                      value={subtitleKey}
+                      onChange={(e) => setSubtitleKey(e.target.value)}
+                    >
+                      <option value="off">Subs off</option>
+                      {streamInfo.subtitleTracks.map((t) => (
+                        <option
+                          key={`${t.kind}:${t.index}:${t.path ?? ''}`}
+                          value={`${t.kind}:${t.index}:${t.path ?? ''}`}
+                        >
+                          {t.kind === 'external' ? 'File · ' : ''}
+                          {t.language || t.title || `Sub ${t.index + 1}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
                 {nextFile ? (
                   <button className="ctrl-btn" type="button" onClick={goNext}>
                     Next
@@ -673,6 +747,30 @@ export function PlayerPage() {
           </div>
         ) : null}
       </div>
+
+      {showUpNext && nextFile && detail ? (
+        <div className="up-next" role="dialog" aria-label="Up next">
+          <div className="up-next-panel">
+            <p className="muted">Up next</p>
+            <h2>
+              {episodeLabel(nextFile.season, nextFile.episode)}
+              {nextFile.episodeName ? ` · ${nextFile.episodeName}` : ''}
+            </h2>
+            <div className="hero-actions">
+              <button className="btn btn-primary" type="button" onClick={goNext}>
+                Play now
+              </button>
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => setShowUpNext(false)}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {showHelp ? (
         <div className="player-help" role="dialog" aria-label="Keyboard shortcuts">

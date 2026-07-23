@@ -43,6 +43,10 @@ cp .env.example .env
 | `SESSION_SECRET` | Long random string for session cookies |
 | `PORT` | Server port (default `8787`) |
 | `LOCAL_MEDIA_ROOT` | Local mount for convert + disk streaming (e.g. `/media`) |
+| `MEDIA_ROOTS` | Optional comma-separated WebDAV roots (Movies/TV/Anime) |
+| `SCAN_INTERVAL_MINUTES` | Auto-scan interval (`0` = manual only) |
+| `SCAN_IGNORE` | Comma-separated path fragments to skip |
+| `FFMPEG_HW` | `auto` / `software` / `nvenc` / `vaapi` / `qsv` |
 | `CONVERT_CONCURRENCY` | Parallel convert jobs (default `1`) |
 | `CONVERT_DELETE_ORIGINAL` | Default for optional delete after verified replace (`false`) |
 
@@ -97,12 +101,22 @@ On Ubuntu containers with media mounted locally:
 
 Sibling `.browser.mp4` copies are created when replace is turned off.
 
+## Docker
+
+```bash
+# Set HOST_MEDIA_PATH to your host media mount
+export HOST_MEDIA_PATH=/path/to/media
+docker compose up -d --build
+```
+
+See `deploy/nginx.example.conf` for a reverse-proxy snippet (Range / long timeouts).
+
 ## Usage
 
 1. Log in with `APP_PASSWORD`
-2. Click **Scan library**
-3. Browse rows, open a title, hit Play
-4. Seeking uses HTTP Range requests through `/api/stream`
+2. Click **Scan library** (or set `SCAN_INTERVAL_MINUTES`)
+3. Browse rows, open a title, hit Play — pick audio/subs in the player
+4. Use profiles + watchlist on the home screen; Admin Convert for permanent browser copies
 
 ## Project layout
 

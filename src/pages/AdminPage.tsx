@@ -1000,6 +1000,28 @@ export function AdminPage({ onLogout }: Props) {
                           <button
                             className="btn btn-ghost btn-sm"
                             type="button"
+                            onClick={() => {
+                              if (!window.confirm('Remove this file from the library index?')) return
+                              const deleteDisk = window.confirm(
+                                'Also delete the file on disk? Requires LOCAL_MEDIA_ROOT.\nOK = delete file · Cancel = index only',
+                              )
+                              void (async () => {
+                                try {
+                                  await api.adminDeleteFile(f.path, deleteDisk)
+                                  notify(deleteDisk ? 'Deleted from index + disk' : 'Removed from index')
+                                  if (drawer) await openDrawer(drawer.id)
+                                  await loadTitles()
+                                } catch (err) {
+                                  notify(err instanceof Error ? err.message : 'Delete failed')
+                                }
+                              })()
+                            }}
+                          >
+                            Delete
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            type="button"
                             onClick={() => void markFileWatched(f.path, f.progress?.duration)}
                           >
                             Watched

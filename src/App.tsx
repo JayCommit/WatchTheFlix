@@ -11,6 +11,11 @@ export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null)
 
   useEffect(() => {
+    const theme = localStorage.getItem('wtf_theme') || 'dark'
+    document.documentElement.dataset.theme = theme
+  }, [])
+
+  useEffect(() => {
     api
       .me()
       .then((r) => setAuthed(r.authed))

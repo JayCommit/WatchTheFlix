@@ -2066,6 +2066,125 @@ img {
   color: #9dcf9f;
 }
 
+.track-select select {
+  max-width: 9rem;
+  padding: 0.35rem 0.45rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(12, 10, 9, 0.85);
+  color: inherit;
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.up-next {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: end center;
+  padding: 2rem;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.75));
+  pointer-events: none;
+  z-index: 6;
+}
+
+.up-next-panel {
+  pointer-events: auto;
+  width: min(420px, 100%);
+  padding: 1.1rem 1.25rem;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(18, 15, 13, 0.94);
+  display: grid;
+  gap: 0.65rem;
+}
+
+.version-pill {
+  display: inline-block;
+  margin-left: 0.45rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid rgba(232, 165, 75, 0.35);
+  color: #e8b86d;
+  vertical-align: middle;
+}
+
+.cast-row {
+  display: flex;
+  gap: 0.85rem;
+  overflow-x: auto;
+  padding-bottom: 0.35rem;
+}
+
+.cast-card {
+  flex: 0 0 7.5rem;
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+}
+
+.cast-card img,
+.cast-fallback {
+  width: 7.5rem;
+  height: 7.5rem;
+  object-fit: cover;
+  border-radius: 10px;
+  background: rgba(22, 19, 17, 0.8);
+  border: 1px solid var(--line);
+}
+
+.missing-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.profile-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.profile-switcher select,
+.profile-add input {
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(12, 10, 9, 0.75);
+  color: inherit;
+  font: inherit;
+  font-size: 0.82rem;
+  max-width: 8.5rem;
+}
+
+.profile-add {
+  display: inline-flex;
+}
+
+:root[data-theme='light'] {
+  --bg: #f3efe6;
+  --bg-elev: #fffdf8;
+  --text: #1c1612;
+  --text-muted: #6a5f55;
+  --line: rgba(40, 30, 20, 0.12);
+  --amber: #b86a1a;
+  color-scheme: light;
+}
+
+:root[data-theme='light'] body {
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(232, 165, 75, 0.18), transparent 55%),
+    radial-gradient(900px 500px at 90% 0%, rgba(90, 70, 50, 0.08), transparent 50%),
+    var(--bg);
+}
+
 @media (min-width: 721px) {
   .menu-toggle,
   .mobile-menu {

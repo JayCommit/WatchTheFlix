@@ -139,6 +139,56 @@ function migrate(): void {
   if (!columnExists('media_files', 'probed_at')) {
     db.exec(`ALTER TABLE media_files ADD COLUMN probed_at TEXT`)
   }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS profile_progress (
+      profile_id INTEGER NOT NULL,
+      path TEXT NOT NULL,
+      position REAL NOT NULL DEFAULT 0,
+      duration REAL NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (profile_id, path),
+      FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS watchlist (
+      profile_id INTEGER NOT NULL,
+      title_id INTEGER NOT NULL,
+      added_at TEXT NOT NULL,
+      PRIMARY KEY (profile_id, title_id),
+      FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+      FOREIGN KEY(title_id) REFERENCES titles(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS preferred_files (
+      title_id INTEGER NOT NULL,
+      season INTEGER,
+      episode INTEGER,
+      path TEXT NOT NULL,
+      PRIMARY KEY (title_id, season, episode)
+    );
+  `)
+
+  const profileCount = (
+    db.prepare(`SELECT COUNT(*) AS c FROM profiles`).get() as { c: number }
+  ).c
+  if (profileCount === 0) {
+    db.prepare(`INSERT INTO profiles (name, created_at) VALUES (?, ?)`).run(
+      'Default',
+      new Date().toISOString(),
+    )
+    // Migrate legacy progress into default profile
+    db.exec(`
+      INSERT OR IGNORE INTO profile_progress (profile_id, path, position, duration, updated_at)
+      SELECT 1, path, position, duration, updated_at FROM progress
+    `)
+  }
 }
 
 migrate()
@@ -1320,4 +1370,144 @@ export function convertJobStats(): {
     done: row('done') + row('skipped'),
     failed: row('failed'),
   }
+}
+
+export type ProfileRow = { id: number; name: string; created_at: string }
+
+export function listProfiles(): ProfileRow[] {
+  return db.prepare(`SELECT * FROM profiles ORDER BY id ASC`).all() as ProfileRow[]
+}
+
+export function getProfile(id: number): ProfileRow | undefined {
+  return db.prepare(`SELECT * FROM profiles WHERE id = ?`).get(id) as ProfileRow | undefined
+}
+
+export function createProfile(name: string): ProfileRow {
+  const trimmed = name.trim().slice(0, 40)
+  if (!trimmed) throw new Error('Name required')
+  const result = db
+    .prepare(`INSERT INTO profiles (name, created_at) VALUES (?, ?)`)
+    .run(trimmed, new Date().toISOString())
+  return getProfile(Number(result.lastInsertRowid))!
+}
+
+export function deleteProfile(id: number): boolean {
+  if (id === 1) throw new Error('Cannot delete the default profile')
+  const result = db.prepare(`DELETE FROM profiles WHERE id = ?`).run(id)
+  return Number(result.changes ?? 0) > 0
+}
+
+export function getProfileProgress(profileId: number, path: string): ProgressRow | undefined {
+  return db
+    .prepare(
+      `SELECT path, position, duration, updated_at FROM profile_progress WHERE profile_id = ? AND path = ?`,
+    )
+    .get(profileId, path) as ProgressRow | undefined
+}
+
+export function upsertProfileProgress(
+  profileId: number,
+  path: string,
+  position: number,
+  duration: number,
+): void {
+  db.prepare(`
+    INSERT INTO profile_progress (profile_id, path, position, duration, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(profile_id, path) DO UPDATE SET
+      position = excluded.position,
+      duration = excluded.duration,
+      updated_at = excluded.updated_at
+  `).run(profileId, path, position, duration, new Date().toISOString())
+  // Keep legacy progress in sync for profile 1 (older APIs / continue watching)
+  if (profileId === 1) upsertProgress(path, position, duration)
+}
+
+export function listProfileContinueWatching(profileId: number, limit = 24) {
+  return db
+    .prepare(
+      `
+      SELECT p.path, p.position, p.duration, p.updated_at,
+             f.filename, f.season, f.episode, f.title_id,
+             t.kind, t.title, t.poster_path, t.backdrop_path
+      FROM profile_progress p
+      JOIN media_files f ON f.path = p.path
+      JOIN titles t ON t.id = f.title_id
+      WHERE p.profile_id = ?
+        AND t.hidden = 0
+        AND p.position > 30
+        AND (p.duration <= 0 OR p.position / p.duration < 0.92)
+      ORDER BY p.updated_at DESC
+      LIMIT ?
+    `,
+    )
+    .all(profileId, limit)
+}
+
+export function listWatchlist(profileId: number) {
+  return db
+    .prepare(
+      `
+      SELECT t.*, w.added_at
+      FROM watchlist w
+      JOIN titles t ON t.id = w.title_id
+      WHERE w.profile_id = ? AND t.hidden = 0
+      ORDER BY w.added_at DESC
+    `,
+    )
+    .all(profileId) as Array<TitleRow & { added_at: string }>
+}
+
+export function addToWatchlist(profileId: number, titleId: number): void {
+  db.prepare(
+    `INSERT OR IGNORE INTO watchlist (profile_id, title_id, added_at) VALUES (?, ?, ?)`,
+  ).run(profileId, titleId, new Date().toISOString())
+}
+
+export function removeFromWatchlist(profileId: number, titleId: number): void {
+  db.prepare(`DELETE FROM watchlist WHERE profile_id = ? AND title_id = ?`).run(
+    profileId,
+    titleId,
+  )
+}
+
+export function isOnWatchlist(profileId: number, titleId: number): boolean {
+  const row = db
+    .prepare(`SELECT 1 AS ok FROM watchlist WHERE profile_id = ? AND title_id = ?`)
+    .get(profileId, titleId) as { ok: number } | undefined
+  return Boolean(row)
+}
+
+export function deleteMediaFileRow(path: string): boolean {
+  db.prepare(`DELETE FROM progress WHERE path = ?`).run(path)
+  db.prepare(`DELETE FROM profile_progress WHERE path = ?`).run(path)
+  db.prepare(`DELETE FROM playback_sessions WHERE path = ?`).run(path)
+  const result = db.prepare(`DELETE FROM media_files WHERE path = ?`).run(path)
+  return Number(result.changes ?? 0) > 0
+}
+
+export function setPreferredFile(
+  titleId: number,
+  path: string,
+  season: number | null,
+  episode: number | null,
+): void {
+  const s = season ?? -1
+  const e = episode ?? -1
+  db.prepare(`
+    INSERT INTO preferred_files (title_id, season, episode, path)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(title_id, season, episode) DO UPDATE SET path = excluded.path
+  `).run(titleId, s, e, path)
+}
+
+export function getPreferredFile(
+  titleId: number,
+  season: number | null,
+  episode: number | null,
+): string | null {
+  const row = db
+    .prepare(`SELECT path FROM preferred_files WHERE title_id = ? AND season = ? AND episode = ?`)
+    .get(titleId, season ?? -1, episode ?? -1) as { path: string } | undefined
+  return row?.path ?? null
 }

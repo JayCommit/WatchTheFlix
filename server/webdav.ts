@@ -119,12 +119,14 @@ export async function probeWebdav(): Promise<{
   }
 }
 
-export async function listAllVideos(root = getConfig().mediaRoot): Promise<ListVideosResult> {
+export async function listAllVideos(root?: string): Promise<ListVideosResult> {
+  const cfg = getConfig()
+  const roots = root ? [root] : cfg.mediaRoots.length ? cfg.mediaRoots : [cfg.mediaRoot]
   const dav = getClient()
   const videos: RemoteVideo[] = []
   const errors: string[] = []
   let dirsScanned = 0
-  const startRoot = root === '' ? '/' : root
+  const ignore = cfg.scanIgnore
 
   async function walk(dir: string, isRoot: boolean): Promise<void> {
     let entries: FileStat[] | FileStat
@@ -153,6 +155,9 @@ export async function listAllVideos(root = getConfig().mediaRoot): Promise<ListV
         ? entry.filename
         : joinPath(dir, filename)
 
+      const pathLower = path.toLowerCase()
+      if (ignore.some((frag) => pathLower.includes(frag))) continue
+
       if (entry.type === 'directory') {
         await walk(path, false)
         continue
@@ -169,8 +174,17 @@ export async function listAllVideos(root = getConfig().mediaRoot): Promise<ListV
     }
   }
 
-  await walk(startRoot, true)
-  return { videos, mediaRoot: startRoot, dirsScanned, errors }
+  for (const r of roots) {
+    const startRoot = r === '' ? '/' : r
+    try {
+      await walk(startRoot, true)
+    } catch (err) {
+      if (roots.length === 1) throw err
+      errors.push(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  return { videos, mediaRoot: roots.join(', '), dirsScanned, errors }
 }
 
 export async function streamFile(

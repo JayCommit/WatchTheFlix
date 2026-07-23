@@ -1,0 +1,17 @@
+{
+  "name": "WatchTheFlix",
+  "short_name": "WatchTheFlix",
+  "description": "Private cinema for your seedbox",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0b0a",
+  "theme_color": "#0c0b0a",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

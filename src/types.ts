@@ -25,7 +25,25 @@ export type MediaFile = {
   season?: number | null
   episode?: number | null
   episodeName?: string | null
+  label?: string
   progress: Progress | null
+}
+
+export type AudioTrack = {
+  index: number
+  codec: string | null
+  language: string | null
+  title: string | null
+  channels: number | null
+}
+
+export type SubtitleTrack = {
+  index: number
+  codec: string | null
+  language: string | null
+  title: string | null
+  kind: 'embedded' | 'external'
+  path?: string
 }
 
 export type ContinueItem = {

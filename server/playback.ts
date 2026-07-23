@@ -8,6 +8,24 @@ import { resolveLocalPath } from './mediafs.ts'
 
 export type PlaybackMode = 'direct' | 'remux' | 'transcode'
 
+export type AudioTrack = {
+  index: number
+  codec: string | null
+  language: string | null
+  title: string | null
+  channels: number | null
+}
+
+export type SubtitleTrack = {
+  index: number
+  codec: string | null
+  language: string | null
+  title: string | null
+  kind: 'embedded' | 'external'
+  /** For external tracks: library-relative or absolute path to sidecar */
+  path?: string
+}
+
 export type StreamInfo = {
   mode: PlaybackMode
   ffmpegAvailable: boolean
@@ -19,13 +37,18 @@ export type StreamInfo = {
   height: number | null
   reason: string
   canDirect: boolean
+  audioTracks: AudioTrack[]
+  subtitleTracks: SubtitleTrack[]
+  hwEncoder: string | null
 }
 
 type ProbeStream = {
+  index?: number
   codec_type?: string
   codec_name?: string
   width?: number
   height?: number
+  channels?: number
   duration?: string
   tags?: Record<string, string>
 }
@@ -44,13 +67,10 @@ const CACHE_MS = 10 * 60 * 1000
 const DIRECT_CONTAINERS = new Set(['mp4', 'm4v', 'mov', 'webm'])
 const DIRECT_VIDEO = new Set(['h264', 'avc', 'vp8', 'vp9', 'av1'])
 const DIRECT_AUDIO = new Set(['aac', 'mp3', 'opus', 'vorbis', 'flac'])
-/** Video we can stream with -c:v copy into MP4 */
 const COPY_VIDEO = new Set(['h264', 'avc', 'mpeg4'])
-/** Audio already fine in MP4 */
 const COPY_AUDIO = new Set(['aac', 'mp3'])
 
 export function binFfmpeg(): string {
-  // Prefer system ffmpeg (Ubuntu container) then bundled binary
   if (process.env.FFMPEG_PATH && existsSync(process.env.FFMPEG_PATH)) {
     return process.env.FFMPEG_PATH
   }
@@ -139,8 +159,7 @@ function decideMode(
     }
   }
 
-  // Remux: copy video, maybe re-encode audio only
-  if (COPY_VIDEO.has(v) && (COPY_AUDIO.has(a) || !a || !COPY_AUDIO.has(a))) {
+  if (COPY_VIDEO.has(v)) {
     if (COPY_AUDIO.has(a) || !a) {
       return {
         mode: 'remux',
@@ -160,6 +179,41 @@ function decideMode(
     reason: `${v || 'video'}/${a || 'audio'} to H.264 + AAC for browser playback`,
     canDirect: false,
   }
+}
+
+/** Resolve preferred H.264 encoder (software or hardware). */
+export function resolveHwEncoder(): string {
+  const pref = getConfig().ffmpegHw
+  if (pref === 'none' || pref === 'software') return 'libx264'
+  if (pref === 'nvenc') return 'h264_nvenc'
+  if (pref === 'vaapi') return 'h264_vaapi'
+  if (pref === 'qsv') return 'h264_qsv'
+  // auto: prefer env hint, else libx264 (safe default — NVENC fails hard if missing)
+  return 'libx264'
+}
+
+function videoEncodeArgs(mode: 'remux' | 'transcode'): string[] {
+  if (mode === 'remux') return ['-c:v', 'copy']
+  const enc = resolveHwEncoder()
+  if (enc === 'h264_nvenc') {
+    return ['-c:v', 'h264_nvenc', '-preset', 'p4', '-cq', '23', '-pix_fmt', 'yuv420p']
+  }
+  if (enc === 'h264_vaapi') {
+    return [
+      '-vaapi_device',
+      '/dev/dri/renderD128',
+      '-vf',
+      'format=nv12,hwupload',
+      '-c:v',
+      'h264_vaapi',
+      '-qp',
+      '23',
+    ]
+  }
+  if (enc === 'h264_qsv') {
+    return ['-c:v', 'h264_qsv', '-preset', 'veryfast', '-global_quality', '23']
+  }
+  return ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-pix_fmt', 'yuv420p']
 }
 
 async function runFfprobe(path: string): Promise<ProbeResult> {
@@ -204,6 +258,16 @@ export function clearProbeCache(path?: string): void {
   else probeCache.clear()
 }
 
+function tagLang(tags?: Record<string, string>): string | null {
+  if (!tags) return null
+  return tags.language || tags.LANGUAGE || tags.lang || null
+}
+
+function tagTitle(tags?: Record<string, string>): string | null {
+  if (!tags) return null
+  return tags.title || tags.TITLE || null
+}
+
 export async function getStreamInfo(path: string): Promise<StreamInfo> {
   const cached = probeCache.get(path)
   if (cached && Date.now() - cached.at < CACHE_MS) return cached.info
@@ -213,13 +277,33 @@ export async function getStreamInfo(path: string): Promise<StreamInfo> {
 
   try {
     const raw = await runFfprobe(path)
-    const video = raw.streams?.find((s) => s.codec_type === 'video')
-    const audio = raw.streams?.find((s) => s.codec_type === 'audio')
+    const streams = raw.streams ?? []
+    const video = streams.find((s) => s.codec_type === 'video')
+    const audioStreams = streams.filter((s) => s.codec_type === 'audio')
+    const subStreams = streams.filter((s) => s.codec_type === 'subtitle')
+
+    const audioTracks: AudioTrack[] = audioStreams.map((s, i) => ({
+      index: i,
+      codec: normalizeCodec(s.codec_name),
+      language: tagLang(s.tags),
+      title: tagTitle(s.tags),
+      channels: s.channels ?? null,
+    }))
+
+    const subtitleTracks: SubtitleTrack[] = subStreams.map((s, i) => ({
+      index: i,
+      codec: normalizeCodec(s.codec_name),
+      language: tagLang(s.tags),
+      title: tagTitle(s.tags),
+      kind: 'embedded' as const,
+    }))
+
     const videoCodec = normalizeCodec(video?.codec_name)
-    const audioCodec = normalizeCodec(audio?.codec_name)
+    const audioCodec = audioTracks[0]?.codec ?? null
     const container = containerFromFormat(raw.format?.format_name, filename)
     const duration = Number(raw.format?.duration || video?.duration || 0) || null
     const decided = decideMode(container, videoCodec, audioCodec)
+    const hw = resolveHwEncoder()
 
     const info: StreamInfo = {
       mode: decided.mode,
@@ -232,6 +316,9 @@ export async function getStreamInfo(path: string): Promise<StreamInfo> {
       height: video?.height ?? null,
       reason: decided.reason,
       canDirect: decided.canDirect,
+      audioTracks,
+      subtitleTracks,
+      hwEncoder: decided.mode === 'transcode' ? hw : null,
     }
     probeCache.set(path, { at: Date.now(), info, raw })
     return info
@@ -252,6 +339,9 @@ export async function getStreamInfo(path: string): Promise<StreamInfo> {
           ? `Probe failed (${err.message}); falling back to ${hasFf && likelyNeedsRemux ? 'remux' : 'direct'}`
           : 'Probe failed',
       canDirect: !likelyNeedsRemux,
+      audioTracks: [],
+      subtitleTracks: [],
+      hwEncoder: null,
     }
     return info
   }
@@ -267,30 +357,17 @@ function addInputArgs(args: string[], path: string): void {
   args.push('-headers', `Authorization: ${authHeader}\r\n`, '-i', url)
 }
 
-function codecArgs(mode: 'remux' | 'transcode', audioCodec: string | null): string[] {
-  if (mode === 'remux') {
-    const a =
-      audioCodec && COPY_AUDIO.has(audioCodec)
-        ? ['-c:a', 'copy']
-        : ['-c:a', 'aac', '-ac', '2', '-b:a', '192k']
-    return ['-c:v', 'copy', ...a]
-  }
-  return [
-    '-c:v',
-    'libx264',
-    '-preset',
-    'veryfast',
-    '-crf',
-    '22',
-    '-pix_fmt',
-    'yuv420p',
-    '-c:a',
-    'aac',
-    '-ac',
-    '2',
-    '-b:a',
-    '192k',
-  ]
+function codecArgs(
+  mode: 'remux' | 'transcode',
+  audioCodec: string | null,
+  audioIndex: number,
+): string[] {
+  const map = ['-map', '0:v:0', '-map', `0:a:${Math.max(0, audioIndex)}?`]
+  const audio =
+    mode === 'remux' && audioCodec && COPY_AUDIO.has(audioCodec)
+      ? ['-c:a', 'copy']
+      : ['-c:a', 'aac', '-ac', '2', '-b:a', '192k']
+  return [...map, ...videoEncodeArgs(mode), ...audio]
 }
 
 function buildFfmpegArgs(
@@ -298,6 +375,7 @@ function buildFfmpegArgs(
   mode: 'remux' | 'transcode',
   startSeconds: number,
   audioCodec: string | null,
+  audioIndex: number,
 ): string[] {
   const args: string[] = ['-hide_banner', '-loglevel', 'error']
 
@@ -306,7 +384,7 @@ function buildFfmpegArgs(
   }
 
   addInputArgs(args, path)
-  args.push(...codecArgs(mode, audioCodec))
+  args.push(...codecArgs(mode, audioCodec, audioIndex))
   args.push(
     '-movflags',
     'frag_keyframe+empty_moov+default_base_moof',
@@ -323,13 +401,14 @@ export function buildConvertFileArgs(
   outputLocal: string,
   mode: 'remux' | 'transcode',
   audioCodec: string | null,
+  audioIndex = 0,
 ): string[] {
   return [
     '-hide_banner',
     '-y',
     '-i',
     sourceLocal,
-    ...codecArgs(mode, audioCodec),
+    ...codecArgs(mode, audioCodec, audioIndex),
     '-movflags',
     '+faststart',
     '-f',
@@ -341,10 +420,21 @@ export function buildConvertFileArgs(
 export function startCompatStream(
   path: string,
   mode: 'remux' | 'transcode',
-  opts: { startSeconds?: number; audioCodec?: string | null; signal?: AbortSignal },
+  opts: {
+    startSeconds?: number
+    audioCodec?: string | null
+    audioIndex?: number
+    signal?: AbortSignal
+  },
 ): { response: Response; proc: ChildProcess } {
   const startSeconds = opts.startSeconds ?? 0
-  const args = buildFfmpegArgs(path, mode, startSeconds, opts.audioCodec ?? null)
+  const args = buildFfmpegArgs(
+    path,
+    mode,
+    startSeconds,
+    opts.audioCodec ?? null,
+    opts.audioIndex ?? 0,
+  )
   const proc = spawn(binFfmpeg(), args, {
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -388,21 +478,67 @@ export function startCompatStream(
   return { response, proc }
 }
 
+/** Extract one embedded subtitle stream to WebVTT text. */
+export function extractSubtitleVtt(
+  path: string,
+  subtitleIndex: number,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const args: string[] = ['-hide_banner', '-loglevel', 'error']
+    addInputArgs(args, path)
+    args.push('-map', `0:s:${subtitleIndex}`, '-f', 'webvtt', 'pipe:1')
+    const proc = spawn(binFfmpeg(), args, {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    proc.stdout.on('data', (d: Buffer) => {
+      stdout += d.toString()
+    })
+    proc.stderr.on('data', (d: Buffer) => {
+      stderr += d.toString()
+    })
+    proc.on('error', reject)
+    proc.on('close', (code) => {
+      if (code !== 0 || !stdout.trim()) {
+        reject(new Error(stderr.trim() || `Subtitle extract failed (${code})`))
+        return
+      }
+      resolve(stdout.startsWith('WEBVTT') ? stdout : `WEBVTT\n\n${stdout}`)
+    })
+  })
+}
+
 export async function resolvePlaybackMode(
   path: string,
   requested?: string | null,
+  opts?: { audioIndex?: number },
 ): Promise<StreamInfo> {
   const info = await getStreamInfo(path)
+  const audioIndex = opts?.audioIndex ?? 0
+  // Non-default audio on a direct-playable file still needs remux to pick the track.
+  if (
+    audioIndex > 0 &&
+    info.canDirect &&
+    info.ffmpegAvailable &&
+    (!requested || requested === 'auto' || requested === 'direct')
+  ) {
+    return {
+      ...info,
+      mode: 'remux',
+      reason: 'Remux to select alternate audio track',
+      canDirect: false,
+    }
+  }
   if (requested === 'direct' || requested === 'remux' || requested === 'transcode') {
     return { ...info, mode: requested }
   }
-  // auto
   if (info.canDirect) return { ...info, mode: 'direct' }
   if (!info.ffmpegAvailable) return { ...info, mode: 'direct' }
   return info
 }
 
-/** Serve a local file with Range support when LOCAL_MEDIA_ROOT is available. */
 export function streamLocalFile(libraryPath: string, rangeHeader?: string | null): Response | null {
   const local = resolveLocalPath(libraryPath)
   if (!local) return null

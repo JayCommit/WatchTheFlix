@@ -78,6 +78,11 @@ import {
   getStreamInfo,
 } from './playback.ts'
 import { contentTypeFor, probeWebdav, streamFile } from './webdav.ts'
+import { registerFeatureRoutes } from './features-api.ts'
+import { startScanScheduler } from './scan-scheduler.ts'
+import { loginAllowed, recordLoginFailure, recordLoginSuccess } from './rate-limit.ts'
+import { listExternalSubtitles } from './subs.ts'
+import { versionLabel } from './quality.ts'
 
 type Variables = {
   authed: boolean
@@ -204,10 +209,23 @@ app.get('/api/health', (c) => c.json({ ok: true }))
 app.get('/api/me', (c) => c.json({ authed: c.get('authed') }))
 
 app.post('/api/login', async (c) => {
+  const ip =
+    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
+    c.req.header('x-real-ip') ||
+    'local'
+  const gate = loginAllowed(ip)
+  if (!gate.ok) {
+    return c.json(
+      { error: `Too many failed attempts. Try again in ${gate.retryAfterSec}s.` },
+      429,
+    )
+  }
   const body = await c.req.json<{ password?: string }>().catch(() => ({} as { password?: string }))
   if (!body.password || !checkPassword(body.password)) {
+    recordLoginFailure(ip)
     return c.json({ error: 'Invalid password' }, 401)
   }
+  recordLoginSuccess(ip)
   const token = createSessionToken()
   setCookie(c, sessionCookieName(), token, sessionCookieOptions())
   return c.json({ ok: true })
@@ -302,6 +320,7 @@ app.get('/api/movie/:id', (c) => {
     path: f.path,
     filename: f.filename,
     size: f.size,
+    label: versionLabel(f.filename),
     progress: getProgress(f.path) ?? null,
   }))
   return c.json({ ...serializeTitle(title)!, files })
@@ -330,10 +349,13 @@ app.get('/api/tv/:id', async (c) => {
     season: f.season,
     episode: f.episode,
     episodeName: f.episode_name,
+    label: versionLabel(f.filename),
     progress: getProgress(f.path) ?? null,
   }))
   return c.json({ ...serializeTitle(title)!, files })
 })
+
+registerFeatureRoutes(app)
 
 // ——— Admin APIs (same session cookie as the rest of the app) ———
 
@@ -913,8 +935,14 @@ app.get('/api/stream/info', async (c) => {
     return c.json({ error: 'Invalid path' }, 400)
   }
   try {
-    const info = await resolvePlaybackMode(path, c.req.query('mode'))
-    return c.json({ ...info, ffmpegAvailable: ffmpegAvailable() })
+    const audioIndex = Number(c.req.query('audio') ?? 0) || 0
+    const info = await resolvePlaybackMode(path, c.req.query('mode'), { audioIndex })
+    const external = listExternalSubtitles(path)
+    return c.json({
+      ...info,
+      subtitleTracks: [...external, ...info.subtitleTracks],
+      ffmpegAvailable: ffmpegAvailable(),
+    })
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : 'Probe failed' }, 500)
   }
@@ -933,7 +961,10 @@ app.get('/api/stream', async (c) => {
     const requestedMode = c.req.query('mode')
     const startRaw = c.req.query('t')
     const startSeconds = startRaw ? Math.max(0, Number(startRaw)) : 0
-    const info = await resolvePlaybackMode(path, requestedMode)
+    const audioIndex = Number(c.req.query('audio') ?? 0) || 0
+    const info = await resolvePlaybackMode(path, requestedMode, { audioIndex })
+    const audioCodec =
+      info.audioTracks[audioIndex]?.codec ?? info.audioCodec
 
     if (info.mode === 'remux' || info.mode === 'transcode') {
       if (!ffmpegAvailable()) {
@@ -947,7 +978,8 @@ app.get('/api/stream', async (c) => {
       }
       const { response } = startCompatStream(path, info.mode, {
         startSeconds: Number.isFinite(startSeconds) ? startSeconds : 0,
-        audioCodec: info.audioCodec,
+        audioCodec,
+        audioIndex,
         signal: c.req.raw.signal,
       })
       // Header values must be ASCII ByteStrings
@@ -1223,6 +1255,7 @@ if (!boot.webdavUrl || !boot.tmdbApiKey) {
 }
 
 startConvertWorker()
+startScanScheduler()
 
 serve({
   fetch: app.fetch,
