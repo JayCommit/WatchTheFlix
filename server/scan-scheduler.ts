@@ -26,14 +26,17 @@ async function tickScan(): Promise<void> {
 
   try {
     console.log(`Scheduled scan starting (interval ${minutes}m)…`)
-    setScanMeta('scan_status', 'running')
+    // scanLibrary writes scan_status / scan_progress; keep a thin wrapper for logs
     const result = await withScanLock(() => scanLibrary())
-    setScanMeta('scan_status', 'idle')
     setScanMeta(
       'last_scheduled_scan',
-      JSON.stringify({ at: new Date().toISOString(), filesFound: result.filesFound }),
+      JSON.stringify({
+        at: new Date().toISOString(),
+        filesFound: result.filesFound,
+        source: result.source,
+      }),
     )
-    console.log('Scheduled scan finished:', result.filesFound, 'files')
+    console.log('Scheduled scan finished:', result.filesFound, 'files', `(${result.source})`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (msg.includes('already running')) return

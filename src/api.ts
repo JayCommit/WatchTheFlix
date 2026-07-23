@@ -13,11 +13,53 @@ import type {
 } from './types'
 import { getClientId } from './utils/clientId'
 
+export type ScanSource = 'local' | 'webdav'
+
+export type ScanProgress = {
+  phase: 'listing' | 'matching' | 'episodes' | 'done' | 'error'
+  source: ScanSource
+  filesFound: number
+  processed: number
+  dirsScanned: number
+  matched: number
+  unmatched: number
+  errors: string[]
+  message: string
+  mediaRoot?: string
+  startedAt: string
+  finishedAt?: string
+}
+
+export type ScanResult = {
+  filesFound: number
+  matched: number
+  unmatched: number
+  titles: number
+  files: number
+  dirsScanned?: number
+  mediaRoot?: string
+  errors?: string[]
+  preservedOverrides?: number
+  tvShows?: number
+  source?: ScanSource
+  warning?: string
+}
+
+export type ScanStatusResponse = {
+  running: boolean
+  status: ScanProgress | null
+  lastResult: ScanResult | null
+}
+
 export class AuthError extends Error {
   constructor(message = 'Session expired') {
     super(message)
     this.name = 'AuthError'
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms))
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -99,29 +141,84 @@ export const api = {
         webdavUserSet: boolean
         webdavPasswordSet: boolean
         mediaRoot: string
+        mediaRoots?: string[]
+        localMediaRoot?: string | null
+        localMediaEnabled?: boolean
         tmdbKeySet: boolean
+        scanIntervalMinutes?: number
+        scanIgnore?: string[]
+      }
+      scanSource: 'local' | 'webdav'
+      local: {
+        ok: boolean
+        localMediaRoot: string | null
+        resolvedPath: string | null
+        topEntries: Array<{ type: string; name: string }>
+        mediaRootFolders: Array<{ root: string; path: string; exists: boolean }>
+        error?: string
       }
       webdav: {
         ok: boolean
+        skipped?: boolean
         mediaRoot: string
         rootEntries: Array<{ type: string; name: string }>
         mediaEntries: Array<{ type: string; name: string }>
         error?: string
       }
-      playback: { ffmpegAvailable: boolean }
+      playback: { ffmpegAvailable: boolean; localMediaEnabled?: boolean }
+      scan?: ScanStatusResponse
     }>('/api/diagnostics'),
-  scan: () =>
-    request<{
-      filesFound: number
-      matched: number
-      unmatched: number
-      titles: number
-      files: number
-      dirsScanned?: number
-      mediaRoot?: string
-      errors?: string[]
-      warning?: string
-    }>('/api/scan', { method: 'POST' }),
+  scanStart: () =>
+    request<{ ok: boolean; started: boolean } & ScanStatusResponse>('/api/scan', {
+      method: 'POST',
+    }),
+  scanStatus: () => request<ScanStatusResponse>('/api/scan/status'),
+  /** @deprecated Prefer runScan() — kept for callers that expect the old sync shape */
+  scan: () => api.runScan(),
+  runScan: async (onUpdate?: (status: ScanStatusResponse) => void): Promise<ScanResult> => {
+    try {
+      const started = await api.scanStart()
+      onUpdate?.(started)
+    } catch (err) {
+      // Another scan is already running — attach and poll
+      const msg = err instanceof Error ? err.message : String(err)
+      if (!msg.toLowerCase().includes('already running')) throw err
+      const status = await api.scanStatus()
+      onUpdate?.(status)
+    }
+
+    const deadline = Date.now() + 60 * 60 * 1000
+    while (Date.now() < deadline) {
+      await sleep(1000)
+      const status = await api.scanStatus()
+      onUpdate?.(status)
+      const phase = status.status?.phase
+      if (!status.running && (phase === 'done' || phase === 'error' || !phase)) {
+        if (phase === 'error') {
+          throw new Error(status.status?.message || 'Scan failed')
+        }
+        if (status.lastResult) return status.lastResult
+        if (phase === 'done') {
+          return {
+            filesFound: status.status?.filesFound ?? 0,
+            matched: status.status?.matched ?? 0,
+            unmatched: status.status?.unmatched ?? 0,
+            titles: 0,
+            files: 0,
+            dirsScanned: status.status?.dirsScanned,
+            mediaRoot: status.status?.mediaRoot,
+            errors: status.status?.errors,
+            source: status.status?.source,
+            warning: status.status?.message?.includes('0 video')
+              ? status.status.message
+              : undefined,
+          }
+        }
+        throw new Error(status.status?.message || 'Scan ended without a result')
+      }
+    }
+    throw new Error('Scan timed out waiting for completion')
+  },
   movie: (id: number) => request<TitleDetail>(`/api/movie/${id}`),
   tv: (id: number) => request<TitleDetail>(`/api/tv/${id}`),
   saveProgress: (path: string, position: number, duration: number) =>

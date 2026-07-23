@@ -61,8 +61,8 @@ import {
   upsertPlaybackSession,
   upsertProgress,
 } from './db.ts'
-import { scanLibrary } from './scanner.ts'
-import { withScanLock } from './scan-lock.ts'
+import { readLastScanResult, readScanProgress, scanLibrary } from './scanner.ts'
+import { isScanRunning, withScanLock } from './scan-lock.ts'
 import {
   backdropUrl,
   getByTmdbId,
@@ -78,7 +78,7 @@ import {
   requestCancelConvert,
   startConvertWorker,
 } from './convert.ts'
-import { localMediaEnabled } from './mediafs.ts'
+import { localMediaEnabled, probeLocalMedia } from './mediafs.ts'
 import {
   ffmpegAvailable,
   resolvePlaybackMode,
@@ -361,44 +361,89 @@ app.delete('/api/admin/users/:id', (c) => {
   }
 })
 
+function scanStatusPayload() {
+  const running = isScanRunning()
+  const status = readScanProgress()
+  const lastResult = readLastScanResult()
+  return { running, status, lastResult }
+}
+
 app.get('/api/diagnostics', async (c) => {
   const denied = requireAdmin(c)
   if (denied) return denied
   reloadConfig()
   const summary = publicConfigSummary()
-  const probe = await probeWebdav()
-    return c.json({
-      config: summary,
-      webdav: probe,
-      playback: {
-        ffmpegAvailable: ffmpegAvailable(),
-        localMediaEnabled: localMediaEnabled(),
-      },
-      convert: convertJobStats(),
-    })
+  const localProbe = await probeLocalMedia()
+  const useLocalScan = localMediaEnabled()
+  // When local scan source is active, skip WebDAV probe (still expose config for playback fallback)
+  const webdav = useLocalScan
+    ? {
+        ok: false,
+        skipped: true as const,
+        mediaRoot: summary.mediaRoot,
+        rootEntries: [] as Array<{ type: string; name: string }>,
+        mediaEntries: [] as Array<{ type: string; name: string }>,
+        error: 'Skipped — library scan uses LOCAL_MEDIA_ROOT',
+      }
+    : await probeWebdav()
+  return c.json({
+    config: summary,
+    scanSource: useLocalScan ? 'local' : 'webdav',
+    local: localProbe,
+    webdav,
+    playback: {
+      ffmpegAvailable: ffmpegAvailable(),
+      localMediaEnabled: localMediaEnabled(),
+    },
+    convert: convertJobStats(),
+    scan: scanStatusPayload(),
   })
+})
+
+app.get('/api/scan/status', (c) => {
+  const denied = requireAdmin(c)
+  if (denied) return denied
+  return c.json(scanStatusPayload())
+})
 
 app.post('/api/scan', async (c) => {
   const denied = requireAdmin(c)
   if (denied) return denied
-  try {
-    reloadConfig()
-    console.log('Scan starting with config:', publicConfigSummary())
-    const result = await withScanLock(() => scanLibrary())
-    console.log('Scan finished:', {
-      filesFound: result.filesFound,
-      titles: result.titles,
-      mediaRoot: result.mediaRoot,
-      preservedOverrides: result.preservedOverrides,
-      warning: result.warning,
-    })
-    return c.json(result)
-  } catch (err) {
-    console.error('Scan failed:', err)
-    const msg = err instanceof Error ? err.message : 'Scan failed'
-    const status = msg.includes('already running') ? 409 : 500
-    return c.json({ error: msg }, status)
+  reloadConfig()
+
+  if (isScanRunning()) {
+    return c.json(
+      { error: 'A library scan is already running', ...scanStatusPayload() },
+      409,
+    )
   }
+
+  console.log('Scan starting with config:', publicConfigSummary())
+  // Fire-and-forget under lock so proxies/browsers don't time out on large libraries
+  void withScanLock(async () => {
+    try {
+      const result = await scanLibrary()
+      console.log('Scan finished:', {
+        filesFound: result.filesFound,
+        titles: result.titles,
+        mediaRoot: result.mediaRoot,
+        source: result.source,
+        preservedOverrides: result.preservedOverrides,
+        warning: result.warning,
+      })
+    } catch (err) {
+      console.error('Scan failed:', err)
+    }
+  }).catch((err) => {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (!msg.includes('already running')) {
+      console.error('Scan lock error:', err)
+    }
+  })
+
+  // Tiny yield so scan_progress is usually written before the response
+  await new Promise((r) => setTimeout(r, 50))
+  return c.json({ ok: true, started: true, ...scanStatusPayload() })
 })
 
 function activeProfileId(c: Context<{ Variables: Variables }>): number {

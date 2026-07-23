@@ -1,11 +1,11 @@
 # WatchTheFlix
 
-Lightweight cinematic UI for your seedbox. Scans media over **SFTPGo WebDAV**, enriches titles with **TMDB**, and streams with direct play / remux / transcode. Admin can permanently convert incompatible files on a local disk mount.
+Lightweight cinematic UI for your seedbox. Scans media from a **local disk mount** (when `LOCAL_MEDIA_ROOT` is set) or **SFTPGo WebDAV**, enriches titles with **TMDB**, and streams with direct play / remux / transcode. Admin can permanently convert incompatible files on a local disk mount.
 
 ## Features
 
 - Per-user accounts (first user = admin; Manage → Users for invites/roles)
-- WebDAV scan of movies / TV (filename parsing for `Movie.Name.2023` and `Show.S01E02`)
+- Local or WebDAV scan of movies / TV (filename parsing for `Movie.Name.2023` and `Show.S01E02`)
 - TMDB posters, backdrops, overviews
 - Direct / remux / live-transcode streaming
 - Admin convert queue: codec probe, FFmpeg jobs, verified replace, optional delete of originals
@@ -15,7 +15,7 @@ Lightweight cinematic UI for your seedbox. Scans media over **SFTPGo WebDAV**, e
 ## Requirements
 
 - Node.js 22+ (SQLite via built-in `node:sqlite` — no native compile step)
-- SFTPGo with WebDAV enabled
+- Local media mount (`LOCAL_MEDIA_ROOT`) and/or SFTPGo with WebDAV enabled
 - [TMDB API key](https://www.themoviedb.org/settings/api)
 
 ## Security
@@ -45,8 +45,8 @@ cp .env.example .env
 | `ALLOW_PUBLIC_REGISTRATION` | Allow self-signup as `user` after first admin exists |
 | `HOST` | Bind address (default `0.0.0.0`) |
 | `PORT` | Server port (default `8787`) |
-| `LOCAL_MEDIA_ROOT` | Local mount for convert + disk streaming (e.g. `/media`) |
-| `MEDIA_ROOTS` | Optional comma-separated WebDAV roots (Movies/TV/Anime) |
+| `LOCAL_MEDIA_ROOT` | Local mount for convert, disk streaming, and library scan when the path exists (e.g. `/media`) |
+| `MEDIA_ROOTS` | Optional comma-separated library roots (Movies/TV/Anime) |
 | `SCAN_INTERVAL_MINUTES` | Auto-scan interval (`0` = manual only) |
 | `SCAN_IGNORE` | Comma-separated path fragments to skip |
 | `FFMPEG_HW` | `auto` / `software` / `nvenc` / `vaapi` / `qsv` |
@@ -71,9 +71,15 @@ npm start
 
 Open [http://localhost:8787](http://localhost:8787).
 
+## Library scan
+
+- If `LOCAL_MEDIA_ROOT` points to an existing directory, **scan uses the local filesystem only** (no WebDAV listing). Paths stored in the DB stay WebDAV-style under `MEDIA_ROOT` / `MEDIA_ROOTS` so playback and existing rows keep working.
+- WebDAV remains optional for remote streaming when a file cannot be resolved on disk.
+- Without a valid `LOCAL_MEDIA_ROOT`, scan falls back to listing over SFTPGo WebDAV.
+
 ## SFTPGo tips
 
-- Enable WebDAV for the user/account that holds your media.
+- Enable WebDAV for the user/account that holds your media (needed when not scanning/playing from local disk).
 - Prefer HTTPS so credentials and streams are encrypted.
 - `MEDIA_ROOT` should match the folder layout inside WebDAV (e.g. `/media` or `/downloads`).
 - Large libraries: first scan can take a while (TMDB lookups per unique title).

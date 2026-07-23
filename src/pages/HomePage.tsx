@@ -108,19 +108,34 @@ export function HomePage({ user, onLogout }: Props) {
   async function onScan() {
     if (!isAdmin) return
     setScanning(true)
-    setScanMsg('Connecting to WebDAV and listing files… this can take a few minutes for large libraries.')
+    setScanMsg('Starting library scan…')
     setMenuOpen(false)
     try {
-      const result = await api.scan()
+      const result = await api.runScan((status) => {
+        const p = status.status
+        if (!p) return
+        const src = p.source === 'local' ? 'Local disk' : 'WebDAV'
+        if (p.phase === 'listing') {
+          setScanMsg(`${src}: listing folders… (${p.dirsScanned} scanned)`)
+        } else if (p.phase === 'matching') {
+          setScanMsg(
+            `${src}: matching ${p.processed}/${p.filesFound} · ${p.matched} matched`,
+          )
+        } else if (p.message) {
+          setScanMsg(p.message)
+        }
+      })
+      const errN = result.errors?.length ?? 0
       if (result.warning) {
-        setScanMsg(result.warning)
-      } else if (result.errors?.length) {
+        setScanMsg(result.warning + (errN ? ` (${errN} errors)` : ''))
+      } else if (errN) {
         setScanMsg(
-          `Found ${result.filesFound} files · ${result.titles} titles · ${result.errors.length} errors`,
+          `Found ${result.filesFound} files · ${result.titles} titles · ${errN} errors`,
         )
       } else {
         setScanMsg(
-          `Found ${result.filesFound} files under ${result.mediaRoot ?? 'MEDIA_ROOT'} · ${result.titles} titles`,
+          `Found ${result.filesFound} files under ${result.mediaRoot ?? 'media root'} · ${result.titles} titles` +
+            (result.source ? ` (${result.source})` : ''),
         )
       }
       await load()
@@ -252,8 +267,8 @@ export function HomePage({ user, onLogout }: Props) {
             {isAdmin ? (
               <>
                 <p>
-                  Scan pulls video files over WebDAV, then matches them on TMDB — large libraries can
-                  take several minutes.
+                  Scan lists video files from local disk (when LOCAL_MEDIA_ROOT is set) or WebDAV,
+                  then matches them on TMDB — large libraries can take several minutes.
                 </p>
                 <button
                   className="btn btn-primary"

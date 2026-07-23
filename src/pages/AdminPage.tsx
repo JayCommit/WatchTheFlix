@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api } from '../api'
+import { api, type ScanStatusResponse } from '../api'
 import { ConvertSection } from '../components/ConvertSection'
 import { TopBar } from '../components/TopBar'
 import type {
@@ -91,6 +91,7 @@ export function AdminPage({ user, onLogout }: Props) {
 
   const [scanning, setScanning] = useState(false)
   const [scanMsg, setScanMsg] = useState('')
+  const [scanStatus, setScanStatus] = useState<ScanStatusResponse | null>(null)
   const [diag, setDiag] = useState<Diagnostics | null>(null)
   const [diagError, setDiagError] = useState('')
 
@@ -310,18 +311,44 @@ export function AdminPage({ user, onLogout }: Props) {
 
   async function onScan() {
     setScanning(true)
-    setScanMsg('Scanning WebDAV… this can take a few minutes.')
+    setScanStatus(null)
+    const local = diag?.scanSource === 'local' || diag?.config.localMediaEnabled
+    setScanMsg(
+      local
+        ? 'Scanning local disk under LOCAL_MEDIA_ROOT…'
+        : 'Scanning WebDAV under MEDIA_ROOT…',
+    )
     try {
       await loadDiagnostics()
-      const result = await api.scan()
+      const result = await api.runScan((status) => {
+        setScanStatus(status)
+        const p = status.status
+        if (!p) return
+        const src = p.source === 'local' ? 'local disk' : 'WebDAV'
+        if (p.phase === 'listing') {
+          setScanMsg(`${src}: listing… ${p.dirsScanned} folders`)
+        } else if (p.phase === 'matching') {
+          setScanMsg(
+            `${src}: matching ${p.processed}/${p.filesFound} · ${p.matched} matched · ${p.unmatched} unmatched`,
+          )
+        } else if (p.phase === 'episodes') {
+          setScanMsg(`${src}: ${p.message}`)
+        } else if (p.message) {
+          setScanMsg(p.message)
+        }
+      })
       if (result.warning) {
         setScanMsg(result.warning)
       } else {
+        const errN = result.errors?.length ?? 0
         setScanMsg(
-          `Found ${result.filesFound} files · ${result.matched} matched · ${result.unmatched} unmatched · ${result.titles} titles`,
+          `Found ${result.filesFound} files · ${result.matched} matched · ${result.unmatched} unmatched · ${result.titles} titles` +
+            (errN ? ` · ${errN} errors` : '') +
+            (result.source ? ` (${result.source})` : ''),
         )
       }
       void loadOverview()
+      void loadDiagnostics()
       if (section === 'library' || section === 'unmatched') void loadTitles()
     } catch (err) {
       setScanMsg(err instanceof Error ? err.message : 'Scan failed')
@@ -823,6 +850,7 @@ export function AdminPage({ user, onLogout }: Props) {
           <ToolsSection
             scanning={scanning}
             scanMsg={scanMsg}
+            scanStatus={scanStatus}
             diag={diag}
             diagError={diagError}
             onScan={() => void onScan()}
@@ -1481,11 +1509,24 @@ function ActivitySection(props: {
 function ToolsSection(props: {
   scanning: boolean
   scanMsg: string
+  scanStatus: ScanStatusResponse | null
   diag: Diagnostics | null
   diagError: string
   onScan: () => void
   onRefreshDiag: () => void
 }) {
+  const localScan =
+    props.diag?.scanSource === 'local' || Boolean(props.diag?.config.localMediaEnabled)
+  const progress = props.scanStatus?.status
+  const scanErrors = [
+    ...(progress?.errors ?? []),
+    ...(props.scanStatus?.lastResult?.errors ?? []),
+  ]
+    .filter(Boolean)
+    .slice(0, 20)
+  // Dedupe while preserving order
+  const uniqueErrors = [...new Set(scanErrors)].slice(0, 20)
+
   return (
     <div className="admin-scan">
       <section className="admin-panel">
@@ -1493,8 +1534,9 @@ function ToolsSection(props: {
           <h2>Library scan</h2>
         </div>
         <p className="muted">
-          Re-lists WebDAV under MEDIA_ROOT, rematches filenames on TMDB, and rebuilds the local
-          index. Titles with a manual override keep their match across scans.
+          {localScan
+            ? 'Scan local disk under LOCAL_MEDIA_ROOT, rematch filenames on TMDB, and rebuild the local index. Titles with a manual override keep their match across scans.'
+            : 'Scan WebDAV under MEDIA_ROOT, rematch filenames on TMDB, and rebuild the local index. Titles with a manual override keep their match across scans.'}
         </p>
         <div className="admin-inline-form" style={{ marginTop: '1rem' }}>
           <button
@@ -1509,6 +1551,21 @@ function ToolsSection(props: {
             Refresh diagnostics
           </button>
         </div>
+        {props.scanning && progress ? (
+          <ul className="diag-list" style={{ marginTop: '1rem' }}>
+            <li>
+              Source: <code>{progress.source}</code> · phase: <code>{progress.phase}</code>
+            </li>
+            <li>
+              Dirs scanned: {progress.dirsScanned} · files found: {progress.filesFound} ·
+              processed: {progress.processed}
+            </li>
+            <li>
+              Matched: {progress.matched} · unmatched: {progress.unmatched}
+            </li>
+            {progress.message ? <li className="muted">{progress.message}</li> : null}
+          </ul>
+        ) : null}
         {props.scanMsg ? (
           <p
             className={
@@ -1521,6 +1578,21 @@ function ToolsSection(props: {
             {props.scanMsg}
           </p>
         ) : null}
+        {uniqueErrors.length > 0 ? (
+          <div style={{ marginTop: '0.75rem' }}>
+            <p className="muted" style={{ marginBottom: '0.35rem' }}>
+              Errors ({uniqueErrors.length}
+              {scanErrors.length > uniqueErrors.length ? '+' : ''}):
+            </p>
+            <ul className="diag-list">
+              {uniqueErrors.map((e) => (
+                <li key={e} className="error-text" style={{ fontSize: '0.85rem' }}>
+                  {e}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </section>
 
       <section className="admin-panel">
@@ -1531,16 +1603,61 @@ function ToolsSection(props: {
         {props.diag ? (
           <ul className="diag-list">
             <li>
-              WebDAV host: <code>{props.diag.config.webdavHost || '(missing)'}</code>
+              Scan source:{' '}
+              <code>{props.diag.scanSource ?? (localScan ? 'local' : 'webdav')}</code>
             </li>
+            <li>
+              LOCAL_MEDIA_ROOT:{' '}
+              <code>{props.diag.config.localMediaRoot || '(not set)'}</code>
+            </li>
+            <li>
+              Local probe:{' '}
+              {props.diag.local?.ok ? (
+                <span className="ok-text">OK</span>
+              ) : props.diag.config.localMediaRoot ? (
+                <span className="error-text">Failed</span>
+              ) : (
+                <span className="muted">n/a</span>
+              )}
+              {props.diag.local?.resolvedPath ? (
+                <>
+                  {' '}
+                  (<code>{props.diag.local.resolvedPath}</code>)
+                </>
+              ) : null}
+            </li>
+            {props.diag.local?.error ? (
+              <li className="error-text">{props.diag.local.error}</li>
+            ) : null}
+            {props.diag.local?.ok && props.diag.local.topEntries.length > 0 ? (
+              <li>
+                Local top-level:{' '}
+                {props.diag.local.topEntries.map((e) => e.name).join(', ')}
+              </li>
+            ) : null}
+            {props.diag.local?.mediaRootFolders?.length ? (
+              <li>
+                Media-root folders:{' '}
+                {props.diag.local.mediaRootFolders
+                  .map((f) => `${f.root}${f.exists ? '' : ' (missing)'}`)
+                  .join(', ')}
+              </li>
+            ) : null}
             <li>
               MEDIA_ROOT: <code>{props.diag.config.mediaRoot}</code>
             </li>
+            {props.diag.config.mediaRoots?.length ? (
+              <li>
+                MEDIA_ROOTS: <code>{props.diag.config.mediaRoots.join(', ')}</code>
+              </li>
+            ) : null}
             <li>
-              Credentials:{' '}
-              {props.diag.config.webdavUserSet && props.diag.config.webdavPasswordSet
-                ? 'set'
-                : 'missing'}
+              Scan interval:{' '}
+              <code>
+                {props.diag.config.scanIntervalMinutes
+                  ? `${props.diag.config.scanIntervalMinutes}m`
+                  : 'manual only'}
+              </code>
             </li>
             <li>TMDB key: {props.diag.config.tmdbKeySet ? 'set' : 'missing'}</li>
             <li>
@@ -1551,21 +1668,42 @@ function ToolsSection(props: {
                 <span className="error-text">missing</span>
               )}
             </li>
-            <li>
-              WebDAV probe:{' '}
-              {props.diag.webdav.ok ? (
-                <span className="ok-text">OK</span>
-              ) : (
-                <span className="error-text">Failed</span>
-              )}
-            </li>
-            {props.diag.webdav.error ? (
-              <li className="error-text">{props.diag.webdav.error}</li>
-            ) : null}
-            {props.diag.webdav.ok && props.diag.webdav.mediaEntries.length > 0 ? (
-              <li>
-                Under MEDIA_ROOT: {props.diag.webdav.mediaEntries.map((e) => e.name).join(', ')}
-              </li>
+            {!localScan || props.diag.config.webdavUrlSet ? (
+              <>
+                <li>
+                  WebDAV host: <code>{props.diag.config.webdavHost || '(missing)'}</code>
+                  {localScan ? <span className="muted"> (playback fallback)</span> : null}
+                </li>
+                <li>
+                  Credentials:{' '}
+                  {props.diag.config.webdavUserSet && props.diag.config.webdavPasswordSet
+                    ? 'set'
+                    : 'missing'}
+                </li>
+                {!props.diag.webdav.skipped ? (
+                  <>
+                    <li>
+                      WebDAV probe:{' '}
+                      {props.diag.webdav.ok ? (
+                        <span className="ok-text">OK</span>
+                      ) : (
+                        <span className="error-text">Failed</span>
+                      )}
+                    </li>
+                    {props.diag.webdav.error ? (
+                      <li className="error-text">{props.diag.webdav.error}</li>
+                    ) : null}
+                    {props.diag.webdav.ok && props.diag.webdav.mediaEntries.length > 0 ? (
+                      <li>
+                        Under MEDIA_ROOT:{' '}
+                        {props.diag.webdav.mediaEntries.map((e) => e.name).join(', ')}
+                      </li>
+                    ) : null}
+                  </>
+                ) : (
+                  <li className="muted">WebDAV probe skipped (local scan active)</li>
+                )}
+              </>
             ) : null}
           </ul>
         ) : (

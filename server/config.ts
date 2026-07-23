@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { config as loadDotenv } from 'dotenv'
 
 export type AppConfig = {
@@ -119,7 +120,7 @@ export function publicConfigSummary() {
     mediaRoot: c.mediaRoot,
     mediaRoots: c.mediaRoots,
     localMediaRoot: c.localMediaRoot || null,
-    localMediaEnabled: Boolean(c.localMediaRoot),
+    localMediaEnabled: Boolean(c.localMediaRoot && existsSync(c.localMediaRoot)),
     tmdbKeySet: Boolean(c.tmdbApiKey),
     appPasswordSet: Boolean(c.appPassword),
     convertConcurrency: c.convertConcurrency,
