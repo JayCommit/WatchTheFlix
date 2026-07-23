@@ -579,6 +579,11 @@ export function buildConvertFileArgs(
 ): string[] {
   return [
     '-hide_banner',
+    // Keep stats on stderr so the convert worker can parse time= progress
+    '-loglevel',
+    'info',
+    '-stats_period',
+    '0.5',
     '-y',
     ...preInputHwArgs(mode),
     '-i',
@@ -594,6 +599,29 @@ export function buildConvertFileArgs(
     'mp4',
     outputLocal,
   ]
+}
+
+/**
+ * Pick the offline convert strategy for a probed file.
+ * Auto prefers remux (stream-copy H.264) whenever possible — never force a
+ * full re-encode unless the video codec cannot be copied into MP4.
+ */
+export function pickConvertMode(
+  requested: 'auto' | 'remux' | 'transcode' | string | null | undefined,
+  info: Pick<StreamInfo, 'mode' | 'canDirect' | 'videoCodec' | 'probeFailed'>,
+): 'remux' | 'transcode' | 'skip' {
+  const req = (requested || 'auto').toLowerCase()
+  if (req === 'remux' || req === 'transcode') return req
+
+  // auto
+  if (info.canDirect || info.mode === 'direct') return 'skip'
+  if (info.probeFailed || !info.videoCodec) {
+    // Caller should treat this as an error; default conservatively
+    return 'transcode'
+  }
+  // H.264 can always be remuxed (audio may still be re-encoded to AAC)
+  if (info.videoCodec === 'h264' || info.mode === 'remux') return 'remux'
+  return 'transcode'
 }
 
 export function startCompatStream(
